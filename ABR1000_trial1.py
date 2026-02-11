@@ -1,57 +1,77 @@
 import openmc
 
 ## Materials
-# 10 g/cm3 = placeholder value for density
+# Uraniums
 u235 = openmc.Material(name='U235')
 u235.add_nuclide('U235', 1.0)
-u235.set_density('g/cm3', 10.0)
+u235.set_density('g/cm3', 19.1)
 
 u238 = openmc.Material(name='U238')
 u238.add_nuclide('U238', 1.0)
-u238.set_density('g/cm3', 10.0)
+u238.set_density('g/cm3', 19.1)
 
-pu238 = openmc.Material(name='Pu238')
-pu238.add_nuclide('Pu238', 1.0)
-pu238.set_density('g/cm3', 10.0)
+# Transuranics
+Np237 = openmc.Material(name='Np237')
+Np237.add_nuclide('Np237', 1.0)
+Np237.set_density('g/cm3', 20.5)
 
-pu239 = openmc.Material(name='U235')
-pu239.add_nuclide('Pu239', 1.0)
-pu239.set_density('g/cm3', 10.0)
+Pu238 = openmc.Material(name='Pu238')
+Pu238.add_nuclide('Pu238', 1.0)
+Pu238.set_density('g/cm3', 19.8)
 
-pu240 = openmc.Material(name='Pu240')
-pu240.add_nuclide('Pu240', 1.0)
-pu240.set_density('g/cm3', 10.0)
+Pu239 = openmc.Material(name='Pu239')
+Pu239.add_nuclide('Pu239', 1.0)
+Pu239.set_density('g/cm3',19.8 )
 
-pu241 = openmc.Material(name='Pu241')
-pu241.add_nuclide('Pu241', 1.0)
-pu241.set_density('g/cm3', 10.0)
+Pu240 = openmc.Material(name='Pu240')
+Pu240.add_nuclide('Pu240', 1.0)
+Pu240.set_density('g/cm3', 19.8)
 
-pu242 = openmc.Material(name='Pu242')
-pu242.add_nuclide('Pu242', 1.0)
-pu242.set_density('g/cm3', 10.0)
+Pu241 = openmc.Material(name='Pu241')
+Pu241.add_nuclide('Pu241', 1.0)
+Pu241.set_density('g/cm3', 19.8)
 
-am241 = openmc.Material(name='Am241')
-am241.add_nuclide('Am241', 1.0)
-am241.set_density('g/cm3', 10.0)
+Pu242 = openmc.Material(name='Pu242')
+Pu242.add_nuclide('Pu242', 1.0)
+Pu242.set_density('g/cm3', 19.8)
 
-o16 = openmc.Material(name='O16')
-o16.add_nuclide('O16', 1.0)
-o16.set_density('g/cm3', 10.0)
+Am241 = openmc.Material(name='Am241')
+Am241.add_nuclide('Am241', 1.0)
+Am241.set_density('g/cm3', 13.7)
 
-sodium = openmc.Material(name='Na')
-sodium.add_nuclide('Na23', 1.0)
-sodium.set_density('g/cm3', 0.96)
+Am242m = openmc.Material(name='Am242')
+Am242m.add_nuclide('Am242', 1.0)
+Am242m.set_density('g/cm3', 13.7)
 
-cu63 = openmc.Material(name='Cu63')
-cu63.set_density('g/cm3', 10.0)
-cu63.add_nuclide('Cu63', 1.0)
+Am243 = openmc.Material(name='Am243')
+Am243.add_nuclide('Am243', 1.0)
+Am243.set_density('g/cm3', 13.7)
 
-Al2O3 = openmc.Material(name='Al2O3')
-Al2O3.set_density('g/cm3', 10.0)
-Al2O3.add_element('O', 3.0)
-Al2O3.add_element('Al', 2.0)
+Cm243 = openmc.Material(name='Cm243')
+Cm243.add_nuclide('Cm243', 1.0)
+Cm243.set_density('g/cm3', 13.5)
+
+Cm244 = openmc.Material(name='Cm244')
+Cm244.add_nuclide('Cm244', 1.0)
+Cm244.set_density('g/cm3', 13.5)
+
+Cm245 = openmc.Material(name='Cm245')
+Cm245.add_nuclide('Cm245', 1.0)
+Cm245.set_density('g/cm3', 13.5)
+
+# Other
+Zr = openmc.Material(name='Zr')
+Zr.add_element('Zr', 1.0)
+Zr.set_density('g/cm3', 13.5)
 
 ## Material mixtures
+# Materials
+TRU = openmc.Material.mix_materials(
+  [Np237, Pu238, Pu239, Pu240, Pu241, Pu242, Am241, Am242m, Am243, Cm243, Cm244, Cm245],
+  [0.0472, 0.0218, 0.4734, 0.2282, 0.0842, 0.0684, 0.0561, 0.0001, 0.0156, 0.0000, 0.0046, 0.0004],
+  'wo') # LWR-SF
+
+# Components
 inner = openmc.Material.mix_materials(
   [],
   [],
