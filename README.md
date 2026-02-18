@@ -1,5 +1,4 @@
-# ABR1000_OPENMC
-Computational Modeling of Sodium Cooled Fast Reactors
+# Computational Modeling of Sodium Cooled Fast Reactors #
 
 _Goal: To understand and test existing computational modeling methods for Gen IV Sodium Cooled Fast Reactors._
 
