@@ -1,3 +1,4 @@
+%matplotlib inline
 import openmc
 
 ## Materials
@@ -66,6 +67,12 @@ Zr.set_density('g/cm3', 13.5)
 
 ## Material mixtures
 # Materials
+U = openmc.Material.mix_materials(
+  [],
+  [],
+  'wo'
+)
+
 TRU = openmc.Material.mix_materials(
   [Np237, Pu238, Pu239, Pu240, Pu241, Pu242, Am241, Am242m, Am243, Cm243, Cm244, Cm245],
   [0.0472, 0.0218, 0.4734, 0.2282, 0.0842, 0.0684, 0.0561, 0.0001, 0.0156, 0.0000, 0.0046, 0.0004],
@@ -98,6 +105,9 @@ reflector = openmc.Material.mix_materials(
   'wo')
 
 ## Materials file
+# Instantiate a Materials collection and export to xml
+materials_file = openmc.Materials([inner, outer, sodium, clad])
+materials_file.export_to_xml()
 
 ## Assembly Geometry
 
@@ -116,7 +126,22 @@ reflector = openmc.Material.mix_materials(
 ## Core Geometry
 
 ## Geometry file
+geom = openmc.Geometry(main_u)
+geom.export_to_xml()
 
 ## Simulation parameters
+lower_left = [-300, -300, -50]
+upper_right = [300, 300, 50]
+uniform_dist = openmc.stats.Box(lower_left, upper_right)
+src = openmc.IndependentSource(space=uniform_dist, constraints={"fissionable": True})
+
+settings = openmc.Settings()
+settings.source = src
+settings.batches = 100
+settings.inactive = 10
+settings.particles = 1000
+
+settings.export_to_xml()
 
 ## EXECUTION
+openmc.run()
