@@ -3,13 +3,13 @@ import openmc
 
 ## Materials
 # Uraniums
-u235 = openmc.Material(name='U235')
-u235.add_nuclide('U235', 1.0)
-u235.set_density('g/cm3', 19.1)
+U235 = openmc.Material(name='U235')
+U235.add_nuclide('U235', 1.0)
+U235.set_density('g/cm3', 19.1)
 
-u238 = openmc.Material(name='U238')
-u238.add_nuclide('U238', 1.0)
-u238.set_density('g/cm3', 19.1)
+U238 = openmc.Material(name='U238')
+U238.add_nuclide('U238', 1.0)
+U238.set_density('g/cm3', 19.1)
 
 # Transuranics
 Np237 = openmc.Material(name='Np237')
@@ -76,7 +76,14 @@ U = openmc.Material.mix_materials(
 TRU = openmc.Material.mix_materials(
   [Np237, Pu238, Pu239, Pu240, Pu241, Pu242, Am241, Am242m, Am243, Cm243, Cm244, Cm245],
   [0.0472, 0.0218, 0.4734, 0.2282, 0.0842, 0.0684, 0.0561, 0.0001, 0.0156, 0.0000, 0.0046, 0.0004],
-  'wo') # LWR-SF
+  'wo'
+) # Recycled Core
+
+WGPu = openmc.Material.mix_materials(
+  [Pu238, Pu239, Pu240, Pu241, Pu242]
+  [0.01, 93.81, 5.81, 0.35, 0.02]
+  'wo'
+) # Startup Core
 
 # Components
 inner = openmc.Material.mix_materials(
@@ -94,12 +101,22 @@ cladding = openmc.Material.mix_materials(
   [],
   'wo')
 
+reflector = openmc.Material.mix_materials(
+  [],
+  [],
+  'wo')
+
 shield = openmc.Material.mix_materials(
   [],
   [],
   'wo')
 
-reflector = openmc.Material.mix_materials(
+primary_control = openmc.Material.mix_materials(
+  [],
+  [],
+  'wo')
+
+secondary_control = openmc.Material.mix_materials(
   [],
   [],
   'wo')
