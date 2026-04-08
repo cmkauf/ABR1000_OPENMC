@@ -1,19 +1,19 @@
 """
-ABR-1000 OpenMC Model  —  Equilibrium TRU-Recycled Metal Core
-=============================================================
+ABR-1000 OpenMC Model; Equilibrium TRU-Recycled Metal Core
+
 Reference: Grandy & Seidensticker (eds.), "Advanced Burner Reactor 1000 MWth
 Reference Concept," ANL-AFCI-202 (ANL-ABR-4), Argonne National Laboratory,
 September 2007.
 
 Design basis: EQUILIBRIUM TRU-RECYCLED metal core (U-TRU-10Zr / HT9 / Na)
   Core layout (Fig. II.1-1):
-    Inner fuel zone   —  78 assemblies
-    Outer fuel zone   — 102 assemblies
-    Reflector         — 114 assemblies  (solid HT9 pins)
-    Radial shield     —  66 assemblies  (B4C in HT9 tubes)
-    Primary control   —  15 assemblies  (row-4: nat-B; row-7: 60%-B10)
-    Secondary control —   4 assemblies  (natural B4C)
-    Total             — 379 assemblies
+    Inner fuel zone   :  78 assemblies
+    Outer fuel zone   : 102 assemblies
+    Reflector         : 114 assemblies  (solid HT9 pins)
+    Radial shield     :  66 assemblies  (B4C in HT9 tubes)
+    Primary control   :  15 assemblies  (row-4: nat-B; row-7: 60%-B10)
+    Secondary control :   4 assemblies  (natural B4C)
+    Total             : 379 assemblies
 
   Key equilibrium-recycle parameters (Table II.1-3, metal recycle column):
     TRU feed             : LWR-SF (50 MWd/kg, 10-yr cooling)
@@ -38,11 +38,11 @@ Geometry: homogenized cylindrical approximation of the hex assembly lattice.
 import math
 import openmc
 
-# =============================================================================
-# SECTION 1 — BASE NUCLIDE / ELEMENT MATERIALS
-# =============================================================================
+# ======================================================================
+# BASE MATERIALS
+# ======================================================================
 
-# -- Uranium isotopes ----------------------------------------------------------
+# Uraniums -------------------------------------------------------------
 U235 = openmc.Material(name='U235')
 U235.add_nuclide('U235', 1.0)
 U235.set_density('g/cm3', 19.1)
@@ -51,7 +51,7 @@ U238 = openmc.Material(name='U238')
 U238.add_nuclide('U238', 1.0)
 U238.set_density('g/cm3', 19.1)
 
-# -- Transuranics (individual nuclides) ----------------------------------------
+# Transuranics ---------------------------------------------------------
 Np237 = openmc.Material(name='Np237')
 Np237.add_nuclide('Np237', 1.0)
 Np237.set_density('g/cm3', 20.5)
@@ -81,7 +81,7 @@ Am241.add_nuclide('Am241', 1.0)
 Am241.set_density('g/cm3', 13.7)
 
 Am242m = openmc.Material(name='Am242m')
-Am242m.add_nuclide('Am242_m1', 1.0)  # metastable — correct OpenMC nuclide tag
+Am242m.add_nuclide('Am242_m1', 1.0)  
 Am242m.set_density('g/cm3', 13.7)
 
 Am243 = openmc.Material(name='Am243')
@@ -100,16 +100,16 @@ Cm245 = openmc.Material(name='Cm245')
 Cm245.add_nuclide('Cm245', 1.0)
 Cm245.set_density('g/cm3', 13.5)
 
-# -- Zirconium alloying element ------------------------------------------------
+# Zirconium ------------------------------------------------------------
 Zr = openmc.Material(name='Zr')
 Zr.add_element('Zr', 1.0)
 Zr.set_density('g/cm3', 6.52)
 
-# =============================================================================
-# SECTION 2 — TRU VECTOR AND FUEL ALLOY
-# =============================================================================
+# ======================================================================
+# TRU AND FUEL ALLOY
+# ======================================================================
 
-# -- Depleted uranium: 0.2 wt% U-235 / 99.8 wt% U-238 ------------------------
+# Depleted uranium: 0.2 wt% U-235 / 99.8 wt% U-238 ---------------------
 DU = openmc.Material.mix_materials(
     [U235,  U238],
     [0.002, 0.998],
@@ -117,9 +117,8 @@ DU = openmc.Material.mix_materials(
 )
 DU.name = 'depleted_U'
 
-# -- LWR-SF TRU vector — Table II.1-1 (wt%) -----------------------------------
+# LWR-SF TRU; Table II.1-1 (wt%) ---------------------------------------
 # Assumed: 50 MWd/kg burnup, 10-year post-irradiation cooling.
-# This is the TRU feed for the EQUILIBRIUM RECYCLED core.
 TRU = openmc.Material.mix_materials(
     [Np237, Pu238, Pu239, Pu240,  Pu241, Pu242,
      Am241, Am242m, Am243, Cm243, Cm244, Cm245],
@@ -129,18 +128,18 @@ TRU = openmc.Material.mix_materials(
 )
 TRU.name = 'TRU_LWR_SF'
 
-# -- U-TRU-10Zr metal fuel alloy -----------------------------------------------
+# U-TRU-10Zr metal fuel alloy ------------------------------------------
 # Composition from Table II.1-3 (metal recycle column):
 #   Average TRU enrichment eps = 22.1 wt% in heavy metal (HM)
 #   Zr = 10 wt% of total ternary alloy  (Table II.1-2, pin material)
 #   HM fraction of total  = 1.0 - 0.10 = 0.90
 #   TRU fraction of total = eps x HM_frac = 0.221 x 0.90 = 0.1989
 #   DU  fraction of total = (1-eps) x HM_frac = 0.779 x 0.90 = 0.7011
-_eps   = 0.221             # TRU/HM wt fraction (Table II.1-3 recycle average)
-_w_Zr  = 0.10              # Zr wt fraction in ternary alloy (Table II.1-2)
-_w_HM  = 1.0 - _w_Zr      # heavy metal fraction = 0.90
-_w_TRU = _eps * _w_HM     # = 0.1989
-_w_DU  = (1.0 - _eps) * _w_HM  # = 0.7011
+_eps   = 0.221
+_w_Zr  = 0.10
+_w_HM  = 1.0 - _w_Zr
+_w_TRU = _eps * _w_HM
+_w_DU  = (1.0 - _eps) * _w_HM
 
 fuel_alloy = openmc.Material.mix_materials(
     [DU,    TRU,    Zr],
@@ -149,11 +148,11 @@ fuel_alloy = openmc.Material.mix_materials(
 )
 fuel_alloy.name = 'U_TRU_10Zr_recycle'
 
-# =============================================================================
-# SECTION 3 — STRUCTURAL / COOLANT / ABSORBER MATERIALS
-# =============================================================================
+# ======================================================================
+# STRUCTURAL / COOLANT / ABSORBER MATERIALS
+# ======================================================================
 
-# -- HT9 ferritic-martensitic steel (cladding AND duct for all assembly types) -
+# HT9 ferritic-martensitic steel ---------------------------------------
 # Used as cladding, wire wrap, and hexagonal duct material (Table II.1-2).
 HT9 = openmc.Material(name='HT9')
 HT9.add_element('Fe', 0.854, 'wo')
@@ -165,23 +164,23 @@ HT9.add_element('C',  0.002, 'wo')
 HT9.add_element('Ni', 0.004, 'wo')
 HT9.set_density('g/cm3', 7.70)
 
-# -- Sodium coolant at average operating temperature ---------------------------
+# Sodium coolant -------------------------------------------------------
 # Core inlet: 355 deg-C, outlet: 510 deg-C  =>  T_avg ~ 432 deg-C (Table II.5-1)
 # Density from Fink-Leibowitz correlation at ~432 deg-C ~ 0.860 g/cm3.
 sodium = openmc.Material(name='Sodium')
 sodium.add_element('Na', 1.0)
 sodium.set_density('g/cm3', 0.860)
 
-# -- B4C with NATURAL boron (19.9 atom% B-10) ----------------------------------
+# B4C with natural boron (19.9 atom% B-10) -----------------------------
 # Used for: radial shield, secondary control, row-4 primary control
 # (Table II.1-2, note a; and body text describing control assemblies).
 B4C_nat = openmc.Material(name='B4C_natural_B')
-B4C_nat.add_nuclide('B10', 4.0 * 0.199, 'ao')  # 19.9 at% B-10 in natural B
+B4C_nat.add_nuclide('B10', 4.0 * 0.199, 'ao')
 B4C_nat.add_nuclide('B11', 4.0 * 0.801, 'ao')
 B4C_nat.add_element('C',   1.0, 'ao')
 B4C_nat.set_density('g/cm3', 2.52)
 
-# -- B4C with 60%-enriched B-10 ------------------------------------------------
+# B4C with 60%-enriched B-10 -------------------------------------------
 # Used for: row-7 primary control assemblies only (Table II.1-2, note b).
 B4C_60 = openmc.Material(name='B4C_60pct_B10')
 B4C_60.add_nuclide('B10', 4.0 * 0.60, 'ao')
@@ -189,8 +188,8 @@ B4C_60.add_nuclide('B11', 4.0 * 0.40, 'ao')
 B4C_60.add_element('C',   1.0, 'ao')
 B4C_60.set_density('g/cm3', 2.52)
 
-# =============================================================================
-# SECTION 4 — HOMOGENIZED ASSEMBLY MATERIALS
+# ======================================================================
+# HOMOGENIZED ASSEMBLY MATERIALS
 #
 # Volume fractions at fabrication from Table II.1-2 (metal fuel core):
 #
@@ -205,9 +204,9 @@ B4C_60.set_density('g/cm3', 2.52)
 #    merged with the 28.8% Na coolant => total Na = 36.4% for the mix call.
 #
 # Mixing mode 'vo' (volume fraction): rho_mix = SUM(vf_i * rho_i).
-# =============================================================================
+# ======================================================================
 
-# -- Inner fuel assembly (78 assemblies) ---------------------------------------
+# Inner fuel assembly (78 assemblies) ----------------------------------
 # Volume fractions: fuel=29.2%, Na(bond+cool)=9.8+35.3=45.1%, HT9=25.7%
 inner_fuel = openmc.Material.mix_materials(
     [fuel_alloy, sodium,  HT9],
@@ -216,9 +215,9 @@ inner_fuel = openmc.Material.mix_materials(
 )
 inner_fuel.name = 'inner_fuel_asm'
 
-# -- Outer fuel assembly (102 assemblies) --------------------------------------
+# Outer fuel assembly (102 assemblies) ---------------------------------
 # Same intra-assembly design as inner; TRU enrichment zoning is at the
-# assembly level (see module docstring note — average 22.1% applied to both).
+# assembly level (see note; average 22.1% applied to both).
 outer_fuel = openmc.Material.mix_materials(
     [fuel_alloy, sodium,  HT9],
     [0.292,      0.451,   0.257],
@@ -226,7 +225,7 @@ outer_fuel = openmc.Material.mix_materials(
 )
 outer_fuel.name = 'outer_fuel_asm'
 
-# -- Reflector assembly (114 assemblies — 91 solid HT9 pins + duct) ------------
+# Reflector assembly (114 assemblies — 91 solid HT9 pins + duct) -------
 # HT9: 75.3% (pins) + 9.2% (duct) = 84.5%; Na coolant = 15.5%
 reflector = openmc.Material.mix_materials(
     [HT9,  sodium],
@@ -235,7 +234,7 @@ reflector = openmc.Material.mix_materials(
 )
 reflector.name = 'reflector_asm'
 
-# -- Radial shield assembly (66 assemblies) ------------------------------------
+# Radial shield assembly (66 assemblies) -------------------------------
 # 19 thick HT9 tubes containing natural B4C pellets (smear density 81%).
 # B4C=43.1%, HT9=29.7%, Na=27.2% (by difference from Table II.1-2).
 radial_shield = openmc.Material.mix_materials(
@@ -245,7 +244,7 @@ radial_shield = openmc.Material.mix_materials(
 )
 radial_shield.name = 'radial_shield_asm'
 
-# -- Lower axial shield material (below active core, fuel-assembly footprint) --
+# Lower axial shield material ------------------------------------------
 # The lower 124.5 cm of each fuel pin contains a solid HT9 plug (lower shield).
 # In the homogenized model the fuel slug volume is replaced by HT9.
 # Approximate: HT9 (slug replaced + clad + duct) ~ 29.2+25.7=54.9%, Na=45.1%.
@@ -256,7 +255,7 @@ lower_shield_mat = openmc.Material.mix_materials(
 )
 lower_shield_mat.name = 'lower_axial_shield'
 
-# -- Primary control — row 4 (3 assemblies, natural boron) ---------------------
+# Primary control; row 4 (3 assemblies, natural boron) ------------------
 primary_ctrl_r4 = openmc.Material.mix_materials(
     [B4C_nat, HT9,   sodium],
     [0.428,   0.208,  0.364],
@@ -264,7 +263,7 @@ primary_ctrl_r4 = openmc.Material.mix_materials(
 )
 primary_ctrl_r4.name = 'primary_ctrl_row4_natB'
 
-# -- Primary control — row 7 (12 assemblies, 60% B-10 enrichment) --------------
+# Primary control; row 7 (12 assemblies, 60% B-10 enrichment) ----------
 primary_ctrl_r7 = openmc.Material.mix_materials(
     [B4C_60, HT9,   sodium],
     [0.428,  0.208,  0.364],
@@ -272,7 +271,7 @@ primary_ctrl_r7 = openmc.Material.mix_materials(
 )
 primary_ctrl_r7.name = 'primary_ctrl_row7_60B10'
 
-# -- Secondary control (4 assemblies, natural boron) ---------------------------
+# Secondary control (4 assemblies, natural boron) ----------------------
 secondary_ctrl = openmc.Material.mix_materials(
     [B4C_nat, HT9,   sodium],
     [0.428,   0.208,  0.364],
@@ -291,11 +290,11 @@ materials_file = openmc.Materials([
 ])
 materials_file.export_to_xml()
 
-# =============================================================================
-# SECTION 5 — GEOMETRY
+# ======================================================================
+# GEOMETRY
 #
 # Radial boundaries derived from hex assembly pitch and assembly counts
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
 # Hex cell area:  A_hex = (sqrt(3)/2) x pitch^2
 #   pitch = 16.142 cm  =>  A_hex = 225.655 cm^2
 #
@@ -315,35 +314,35 @@ materials_file.export_to_xml()
 #   Lower HT9 shield pin : 124.5 cm   (z = -165.15 to -40.65)
 #   Active fuel zone     :  81.3 cm   (z =  -40.65 to +40.65)
 #   Fission gas plenum   : 124.5 cm   (z =  +40.65 to +165.15)
-# =============================================================================
+# ======================================================================
 
-pitch = 16.142                                 # cm (Table II.1-2)
-A_hex = (math.sqrt(3) / 2.0) * pitch ** 2    # = 225.655 cm^2 per hex cell
+pitch = 16.142
+A_hex = (math.sqrt(3) / 2.0) * pitch ** 2
 
 def r_eff(n_asm):
     """Effective cylinder radius (cm) for n_asm hex assemblies."""
     return math.sqrt(n_asm * A_hex / math.pi)
 
-# -- Radial boundary cylinders -------------------------------------------------
-R_inner  = r_eff(85)    # ~  78.1 cm  inner zone + sec/row-4 pri ctrl
-R_outer  = r_eff(199)   # ~ 119.6 cm  + outer zone + row-7 pri ctrl
-R_refl   = r_eff(313)   # ~ 149.9 cm  + reflector assemblies
-R_shield = r_eff(379)   # ~ 165.0 cm  + radial shield assemblies
+# Radial boundary cylinders --------------------------------------------
+R_inner  = r_eff(85)
+R_outer  = r_eff(199)
+R_refl   = r_eff(313)
+R_shield = r_eff(379)
 
 cyl_inner  = openmc.ZCylinder(r=R_inner)
 cyl_outer  = openmc.ZCylinder(r=R_outer)
 cyl_refl   = openmc.ZCylinder(r=R_refl)
 cyl_shield = openmc.ZCylinder(r=R_shield, boundary_type='vacuum')
 
-# -- Axial boundary planes -----------------------------------------------------
-H_active  = 81.3    # cm — active fuel height          (Table II.1-2)
-H_lower   = 124.5   # cm — lower HT9 shield pin length (Table II.1-2)
-H_plenum  = 124.5   # cm — fission gas plenum height   (Table II.1-2)
+# Axial boundary planes ------------------------------------------------
+H_active  = 81.3
+H_lower   = 124.5
+H_plenum  = 124.5
 
-z_bot_active = -H_active / 2.0              # -40.65 cm
-z_top_active = +H_active / 2.0              # +40.65 cm
-z_bot        =  z_bot_active - H_lower      # -165.15 cm
-z_top        =  z_top_active + H_plenum     # +165.15 cm
+z_bot_active = -H_active / 2.0
+z_top_active = +H_active / 2.0
+z_bot        =  z_bot_active - H_lower
+z_top        =  z_top_active + H_plenum
 
 plane_bot     = openmc.ZPlane(z0=z_bot,        boundary_type='vacuum')
 plane_bot_act = openmc.ZPlane(z0=z_bot_active)
@@ -355,7 +354,9 @@ active_slab = +plane_bot_act & -plane_top_act
 lower_slab  = +plane_bot     & -plane_bot_act
 upper_slab  = +plane_top_act & -plane_top
 
-# ==================== ACTIVE CORE AXIAL SLICE ====================
+# ======================================================================
+# ACTIVE CORE AXIAL SLICE 
+# ======================================================================
 
 cell_inner_act = openmc.Cell(
     name   = 'inner_core_active',
@@ -381,9 +382,12 @@ cell_shield_act = openmc.Cell(
     region = +cyl_refl & -cyl_shield & active_slab
 )
 
-# ============= LOWER AXIAL ZONE (HT9 lower shield pins) =============
+# ======================================================================
+# LOWER AXIAL ZONE (HT9 lower shield pins)
+# ----------------------------------------------------------------------
 # Within fuel-assembly radius: lower HT9 shield plugs in sodium flow.
 # Radially beyond: reflector/shield duct structures continue downward.
+# ======================================================================
 
 cell_lower_fuel_zone = openmc.Cell(
     name   = 'lower_axial_fuel_zone',
@@ -397,9 +401,12 @@ cell_lower_outer_ring = openmc.Cell(
     region = +cyl_outer & -cyl_shield & lower_slab
 )
 
-# =========== UPPER AXIAL ZONE (fission gas plenum + sodium) ===========
+# ======================================================================
+# UPPER AXIAL ZONE (fission gas plenum + sodium) 
+# ----------------------------------------------------------------------
 # Gas plenum is sealed inside pins; above the core the open sodium
 # pool dominates. Modelled as pure sodium flowing upward.
+# ======================================================================
 
 cell_upper = openmc.Cell(
     name   = 'upper_axial_plenum',
@@ -407,7 +414,7 @@ cell_upper = openmc.Cell(
     region = -cyl_shield & upper_slab
 )
 
-# -- Assemble universe and geometry --------------------------------------------
+# Assemble universe and geometry ---------------------------------------
 main_universe = openmc.Universe(cells=[
     cell_inner_act, cell_outer_act,
     cell_refl_act,  cell_shield_act,
@@ -419,8 +426,9 @@ geometry = openmc.Geometry(main_universe)
 geometry.export_to_xml()
 
 # =============================================================================
-# SECTION 6 — SETTINGS
+# SETTINGS
 # =============================================================================
+
 # Restrict fission source to the active fissile core region.
 src_box = openmc.stats.Box(
     lower_left  = [-R_outer, -R_outer, z_bot_active],
@@ -435,11 +443,11 @@ settings = openmc.Settings()
 settings.source    = source
 settings.batches   = 110     # 10 inactive + 100 active
 settings.inactive  = 10
-settings.particles = 5000    # increase to >=50 000 for production k-eff runs
+settings.particles = 50000
 settings.export_to_xml()
 
 # =============================================================================
-# SECTION 7 — TALLIES  (uncomment as needed)
+# TALLIES  (uncomment as needed)
 # =============================================================================
 # Flux and fission rate tally across active fuel zones:
 #
@@ -450,7 +458,7 @@ settings.export_to_xml()
 # tallies.export_to_xml()
 
 # =============================================================================
-# SECTION 8 — RUN
+# RUN
 # =============================================================================
 openmc.run()
 
