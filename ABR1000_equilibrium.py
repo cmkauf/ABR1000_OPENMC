@@ -170,6 +170,7 @@ HT9.set_density('g/cm3', 7.70)
 sodium = openmc.Material(name='Sodium')
 sodium.add_element('Na', 1.0)
 sodium.set_density('g/cm3', 0.860)
+sodium.temperature = 600.0   # K — applied directly to Na-filled upper plenum cell
 
 # B4C with natural boron (19.9 atom% B-10) -----------------------------
 # Used for: radial shield, secondary control, row-4 primary control
@@ -214,6 +215,7 @@ inner_fuel = openmc.Material.mix_materials(
     'vo'
 )
 inner_fuel.name = 'inner_fuel_asm'
+inner_fuel.temperature = 600.0   # K — Doppler-broadened XS lookup
 
 # Outer fuel assembly (102 assemblies) ---------------------------------
 # Same intra-assembly design as inner; TRU enrichment zoning is at the
@@ -224,6 +226,7 @@ outer_fuel = openmc.Material.mix_materials(
     'vo'
 )
 outer_fuel.name = 'outer_fuel_asm'
+outer_fuel.temperature = 600.0   # K
 
 # Reflector assembly (114 assemblies — 91 solid HT9 pins + duct) -------
 # HT9: 75.3% (pins) + 9.2% (duct) = 84.5%; Na coolant = 15.5%
@@ -233,6 +236,7 @@ reflector = openmc.Material.mix_materials(
     'vo'
 )
 reflector.name = 'reflector_asm'
+reflector.temperature = 600.0   # K
 
 # Radial shield assembly (66 assemblies) -------------------------------
 # 19 thick HT9 tubes containing natural B4C pellets (smear density 81%).
@@ -243,6 +247,7 @@ radial_shield = openmc.Material.mix_materials(
     'vo'
 )
 radial_shield.name = 'radial_shield_asm'
+radial_shield.temperature = 600.0   # K
 
 # Lower axial shield material ------------------------------------------
 # The lower 124.5 cm of each fuel pin contains a solid HT9 plug (lower shield).
@@ -254,6 +259,7 @@ lower_shield_mat = openmc.Material.mix_materials(
     'vo'
 )
 lower_shield_mat.name = 'lower_axial_shield'
+lower_shield_mat.temperature = 600.0   # K
 
 # Primary control; row 4 (3 assemblies, natural boron) ------------------
 primary_ctrl_r4 = openmc.Material.mix_materials(
@@ -262,6 +268,7 @@ primary_ctrl_r4 = openmc.Material.mix_materials(
     'vo'
 )
 primary_ctrl_r4.name = 'primary_ctrl_row4_natB'
+primary_ctrl_r4.temperature = 600.0   # K
 
 # Primary control; row 7 (12 assemblies, 60% B-10 enrichment) ----------
 primary_ctrl_r7 = openmc.Material.mix_materials(
@@ -270,6 +277,7 @@ primary_ctrl_r7 = openmc.Material.mix_materials(
     'vo'
 )
 primary_ctrl_r7.name = 'primary_ctrl_row7_60B10'
+primary_ctrl_r7.temperature = 600.0   # K
 
 # Secondary control (4 assemblies, natural boron) ----------------------
 secondary_ctrl = openmc.Material.mix_materials(
@@ -278,6 +286,7 @@ secondary_ctrl = openmc.Material.mix_materials(
     'vo'
 )
 secondary_ctrl.name = 'secondary_ctrl_natB'
+secondary_ctrl.temperature = 600.0   # K
 
 # =============================================================================
 # MATERIALS FILE
@@ -426,6 +435,44 @@ geometry = openmc.Geometry(main_universe)
 geometry.export_to_xml()
 
 # =============================================================================
+# PLOTS  (geometry verification)
+# ----------------------------------------------------------------------
+# Material colour map for homogenized zones. RGB tuples are chosen so
+# the four radial rings are visually distinct in the XY mid-plane slice
+# and the axial layering (lower shield / active / upper plenum) is
+# obvious in the YZ slice.
+# =============================================================================
+dict_matcolors = {
+    inner_fuel:       (255, 200,  60),   # yellow        - inner fuel zone
+    outer_fuel:       (255, 140,  40),   # orange        - outer fuel zone
+    reflector:        (140, 140, 160),   # blue-gray     - HT9 radial reflector
+    radial_shield:    ( 80,  80,  90),   # dark gray     - B4C radial shield
+    lower_shield_mat: (110, 110, 130),   # gray          - lower HT9 plug zone
+    sodium:           (120, 200, 240),   # light blue    - Na coolant / plenum
+}
+
+plot_xy = openmc.Plot.from_geometry(geometry)
+plot_xy.filename = 'ABR1000_xy_midplane'
+plot_xy.basis    = 'xy'
+plot_xy.origin   = (0.0, 0.0, 0.0)                # active-core mid-plane
+plot_xy.width    = (2.2 * R_shield, 2.2 * R_shield)
+plot_xy.pixels   = (2000, 2000)
+plot_xy.color_by = 'material'
+plot_xy.colors   = dict_matcolors
+
+plot_yz = openmc.Plot.from_geometry(geometry)
+plot_yz.filename = 'ABR1000_yz_axial'
+plot_yz.basis    = 'yz'
+plot_yz.origin   = (0.0, 0.0, 0.0)
+plot_yz.width    = (2.2 * R_shield, 1.05 * (z_top - z_bot))
+plot_yz.pixels   = (1500, 2000)
+plot_yz.color_by = 'material'
+plot_yz.colors   = dict_matcolors
+
+plots_file = openmc.Plots([plot_xy, plot_yz])
+plots_file.export_to_xml()
+
+# =============================================================================
 # SETTINGS
 # =============================================================================
 
@@ -444,23 +491,91 @@ settings.source    = source
 settings.batches   = 110     # 10 inactive + 100 active
 settings.inactive  = 10
 settings.particles = 50000
+# Temperature treatment for cross-section evaluation.
+#   'default'      : fallback temperature (K) when a material has none set
+#   'method'       : 'interpolation' (blend between XS grid points) or
+#                    'nearest' (snap to closest grid point)
+#   'tolerance'    : max distance (K) allowed when method='nearest'
+# Per-material .temperature assignments (below) override this default.
+settings.temperature = {'default': 600.0, 'method': 'interpolation'}
 settings.export_to_xml()
 
 # =============================================================================
-# TALLIES  (uncomment as needed)
+# PLOT
 # =============================================================================
-# Flux and fission rate tally across active fuel zones:
-#
-# flux_tally = openmc.Tally(name='core_flux_fission')
-# flux_tally.scores  = ['flux', 'fission', 'nu-fission']
-# flux_tally.filters = [openmc.CellFilter([cell_inner_act, cell_outer_act])]
-# tallies = openmc.Tallies([flux_tally])
-# tallies.export_to_xml()
+openmc.plot_geometry()
 
 # =============================================================================
-# RUN
+# TALLIES
+# ----------------------------------------------------------------------
+# Essential neutronics outputs for the ABR-1000 equilibrium metal core:
+#   (1) Total core power       - verify 1000 MWt normalization
+#   (2) Zone-wise power split  - inner vs. outer fuel (ANL Table II.1-3)
+#   (3) System neutron balance - absorption, production, (n,xn)
+#   (4) System leakage         - radial + top + bottom vacuum surfaces
+#   (5) Group-wise flux + nu-fission in fuel (ANL33 group structure)
 # =============================================================================
-openmc.run()
+
+# 33-group energy structure ------
+grpstr33 = [1.00000E-05, 4.17458E-01, 5.31578E-01, 3.92786E+00, 8.31528E+00,
+            1.37096E+01, 2.26033E+01, 3.72665E+01, 6.14421E+01, 1.01301E+02,
+            1.67017E+02, 2.75364E+02, 4.53999E+02, 7.48518E+02, 1.23410E+03,
+            2.03468E+03, 3.35462E+03, 5.53084E+03, 9.11881E+03, 1.50344E+04,
+            2.47875E+04, 4.08677E+04, 6.73794E+04, 1.11090E+05, 1.83156E+05,
+            3.01974E+05, 4.97871E+05, 8.20850E+05, 1.35335E+06, 2.23130E+06,
+            3.67879E+06, 6.06531E+06, 1.00000E+07, 2.00000E+07]
+
+# Filters --------------------------------------------------------------
+fuel_cell_filter  = openmc.CellFilter([cell_inner_act, cell_outer_act])
+inner_only_filter = openmc.CellFilter([cell_inner_act])
+outer_only_filter = openmc.CellFilter([cell_outer_act])
+all_cell_filter   = openmc.CellFilter([
+    cell_inner_act, cell_outer_act, cell_refl_act, cell_shield_act,
+    cell_lower_fuel_zone, cell_lower_outer_ring, cell_upper,
+])
+
+leakage_surface_filter = openmc.SurfaceFilter([cyl_shield, plane_bot, plane_top])
+neutron_filter = openmc.ParticleFilter(['neutron'])
+energy_filter  = openmc.EnergyFilter(grpstr33)
+
+tallies = openmc.Tallies()
+
+# (1) Total core power -------------------------------------------------
+t_total_power = openmc.Tally(name='total_power')
+t_total_power.filters = [fuel_cell_filter]
+t_total_power.scores  = ['kappa-fission', 'fission', 'nu-fission']
+tallies.append(t_total_power)
+
+# (2) Zone-wise power split (inner vs. outer) --------------------------
+t_inner_power = openmc.Tally(name='inner_zone_power')
+t_inner_power.filters = [inner_only_filter]
+t_inner_power.scores  = ['kappa-fission', 'fission']
+tallies.append(t_inner_power)
+
+t_outer_power = openmc.Tally(name='outer_zone_power')
+t_outer_power.filters = [outer_only_filter]
+t_outer_power.scores  = ['kappa-fission', 'fission']
+tallies.append(t_outer_power)
+
+# (3) System neutron balance -------------------------------------------
+t_balance = openmc.Tally(name='neutron_balance')
+t_balance.filters = [neutron_filter, all_cell_filter]
+t_balance.scores  = ['absorption', 'nu-fission', '(n,2n)', '(n,3n)']
+tallies.append(t_balance)
+
+# (4) System leakage through vacuum surfaces ---------------------------
+t_leakage = openmc.Tally(name='system_leakage')
+t_leakage.filters = [neutron_filter, leakage_surface_filter]
+t_leakage.scores  = ['current']
+tallies.append(t_leakage)
+
+# (5) Group-wise flux spectrum in fuel zones ---------------------------
+t_flux_spec = openmc.Tally(name='fuel_flux_spectrum_33g')
+t_flux_spec.filters = [fuel_cell_filter, energy_filter]
+t_flux_spec.scores  = ['flux', 'nu-fission']
+tallies.append(t_flux_spec)
+
+tallies.export_to_xml()
 
 # =============================================================================
 # DESIGN PARAMETER SUMMARY
@@ -494,3 +609,8 @@ print(f"  Power density check  {1e6/V_act:.1f} kW/L  (ANL: 303 kW/L)")
 print(f"  Coolant inlet/outlet 355 / 510 deg-C")
 print(f"  Na density (avg T)   0.860 g/cm3  (~432 deg-C average)")
 print("=" * 70 + "\n")
+
+# =============================================================================
+# RUN
+# =============================================================================
+openmc.run()
