@@ -170,7 +170,7 @@ HT9.set_density('g/cm3', 7.70)
 sodium = openmc.Material(name='Sodium')
 sodium.add_element('Na', 1.0)
 sodium.set_density('g/cm3', 0.860)
-sodium.temperature = 900.0   # K — applied directly to Na-filled upper plenum cell
+sodium.temperature = 600.0   # K — applied directly to Na-filled upper plenum cell
 
 # B4C with natural boron (19.9 atom% B-10) -----------------------------
 # Used for: radial shield, secondary control, row-4 primary control
@@ -215,7 +215,7 @@ inner_fuel = openmc.Material.mix_materials(
     'vo'
 )
 inner_fuel.name = 'inner_fuel_asm'
-inner_fuel.temperature = 900.0   # K — Doppler-broadened XS lookup
+inner_fuel.temperature = 600.0   # K — Doppler-broadened XS lookup
 
 # Outer fuel assembly (102 assemblies) ---------------------------------
 # Same intra-assembly design as inner; TRU enrichment zoning is at the
@@ -226,7 +226,7 @@ outer_fuel = openmc.Material.mix_materials(
     'vo'
 )
 outer_fuel.name = 'outer_fuel_asm'
-outer_fuel.temperature = 900.0   # K
+outer_fuel.temperature = 600.0   # K
 
 # Reflector assembly (114 assemblies — 91 solid HT9 pins + duct) -------
 # HT9: 75.3% (pins) + 9.2% (duct) = 84.5%; Na coolant = 15.5%
@@ -288,6 +288,11 @@ secondary_ctrl = openmc.Material.mix_materials(
 secondary_ctrl.name = 'secondary_ctrl_natB'
 secondary_ctrl.temperature = 900.0   # K
 
+# Artificial absorber material
+leak_absorber = openmc.Material(name='leakage_correction')
+leak_absorber.add_nuclide('B10', 1.0)  # strong absorber
+leak_absorber.set_density('g/cm3', 0.001)  # very low density
+
 # =============================================================================
 # MATERIALS FILE
 # =============================================================================
@@ -295,7 +300,7 @@ materials_file = openmc.Materials([
     inner_fuel, outer_fuel,
     reflector, radial_shield, lower_shield_mat,
     primary_ctrl_r4, primary_ctrl_r7, secondary_ctrl,
-    sodium
+    sodium, leak_absorber
 ])
 materials_file.export_to_xml()
 
@@ -341,7 +346,27 @@ R_shield = r_eff(379)
 cyl_inner  = openmc.ZCylinder(r=R_inner)
 cyl_outer  = openmc.ZCylinder(r=R_outer)
 cyl_refl   = openmc.ZCylinder(r=R_refl)
+# Split reflector (inner + outer leaky ring)
+R_refl_inner = 0.9 * R_refl
+cyl_refl_inner = openmc.ZCylinder(r=R_refl_inner)
 cyl_shield = openmc.ZCylinder(r=R_shield, boundary_type='vacuum')
+
+# --- Control rod angular sectors (cylindrical approximation) ---
+
+# Use planes to carve angular wedges
+theta = math.pi / 6  # 30-degree wedge (adjustable)
+
+plane_ctrl1 = openmc.Plane(a=math.sin(theta), b=-math.cos(theta), c=0)
+plane_ctrl2 = openmc.Plane(a=-math.sin(theta), b=-math.cos(theta), c=0)
+
+# Region between planes (approx wedge)
+ctrl_wedge = +plane_ctrl1 & +plane_ctrl2
+
+# Define a thin leakage correction shell (~5–10 cm)
+delta = 10.0  # cm
+
+cyl_leak_inner = openmc.ZCylinder(r=R_shield - delta)
+cyl_leak_outer = cyl_shield  # existing vacuum boundary
 
 # Axial boundary planes ------------------------------------------------
 H_active  = 81.3
@@ -364,31 +389,73 @@ lower_slab  = +plane_bot     & -plane_bot_act
 upper_slab  = +plane_top_act & -plane_top
 
 # ======================================================================
-# ACTIVE CORE AXIAL SLICE
+# ACTIVE CORE AXIAL SLICE 
 # ======================================================================
 
-cell_inner_act = openmc.Cell(
-    name   = 'inner_core_active',
-    fill   = inner_fuel,
-    region = -cyl_inner & active_slab
+# Inner fuel (excluding control regions)
+cell_inner_fuel = openmc.Cell(
+    name='inner_core_fuel',
+    fill=inner_fuel,
+    region = -cyl_inner & active_slab & ~ctrl_wedge
 )
 
-cell_outer_act = openmc.Cell(
-    name   = 'outer_core_active',
-    fill   = outer_fuel,
-    region = +cyl_inner & -cyl_outer & active_slab
+# Primary control row 4 (natural B)
+cell_ctrl_r4 = openmc.Cell(
+    name='primary_ctrl_row4_region',
+    fill=primary_ctrl_r4,
+    region = -cyl_inner & active_slab & ctrl_wedge
 )
 
-cell_refl_act = openmc.Cell(
-    name   = 'radial_reflector_active',
-    fill   = reflector,
-    region = +cyl_outer & -cyl_refl & active_slab
+# Secondary control (add smaller wedge)
+theta2 = math.pi / 12
+plane_sec1 = openmc.Plane(a=math.sin(theta2), b=-math.cos(theta2), c=0)
+plane_sec2 = openmc.Plane(a=-math.sin(theta2), b=-math.cos(theta2), c=0)
+sec_wedge = +plane_sec1 & +plane_sec2
+
+cell_ctrl_sec = openmc.Cell(
+    name='secondary_ctrl_region',
+    fill=secondary_ctrl,
+    region = -cyl_inner & active_slab & sec_wedge
+)
+
+# Outer fuel (excluding control wedge)
+cell_outer_fuel = openmc.Cell(
+    name='outer_core_fuel',
+    fill=outer_fuel,
+    region = +cyl_inner & -cyl_outer & active_slab & ~ctrl_wedge
+)
+
+# Primary control row 7 (60% B10)
+cell_ctrl_r7 = openmc.Cell(
+    name='primary_ctrl_row7_region',
+    fill=primary_ctrl_r7,
+    region = +cyl_inner & -cyl_outer & active_slab & ctrl_wedge
+)
+
+# Inner reflector (normal)
+cell_refl_inner = openmc.Cell(
+    name='reflector_inner',
+    fill=reflector,
+    region = +cyl_outer & -cyl_refl_inner & active_slab
+)
+
+# Outer reflector (leaky region)
+cell_refl_outer = openmc.Cell(
+    name='reflector_outer_leak',
+    fill=sodium,
+    region = +cyl_refl_inner & -cyl_refl & active_slab
 )
 
 cell_shield_act = openmc.Cell(
     name   = 'radial_shield_active',
     fill   = radial_shield,
     region = +cyl_refl & -cyl_shield & active_slab
+)
+
+cell_leak = openmc.Cell(
+    name='leakage_shell',
+    fill=leak_absorber,
+    region=+cyl_leak_inner & -cyl_leak_outer & active_slab
 )
 
 # ======================================================================
@@ -411,7 +478,7 @@ cell_lower_outer_ring = openmc.Cell(
 )
 
 # ======================================================================
-# UPPER AXIAL ZONE (fission gas plenum + sodium)
+# UPPER AXIAL ZONE (fission gas plenum + sodium) 
 # ----------------------------------------------------------------------
 # Gas plenum is sealed inside pins; above the core the open sodium
 # pool dominates. Modelled as pure sodium flowing upward.
@@ -425,10 +492,11 @@ cell_upper = openmc.Cell(
 
 # Assemble universe and geometry ---------------------------------------
 main_universe = openmc.Universe(cells=[
-    cell_inner_act, cell_outer_act,
-    cell_refl_act,  cell_shield_act,
+    cell_inner_fuel, cell_ctrl_r4, cell_ctrl_sec,
+    cell_outer_fuel, cell_ctrl_r7,
+    cell_refl_inner, cell_refl_outer,  cell_shield_act,
     cell_lower_fuel_zone, cell_lower_outer_ring,
-    cell_upper
+    cell_upper, cell_leak
 ])
 
 geometry = openmc.Geometry(main_universe)
@@ -478,18 +546,25 @@ plots_file.export_to_xml()
 
 # Restrict fission source to the active fissile core region.
 src_box = openmc.stats.Box(
-    lower_left  = [-R_outer, -R_outer, z_bot_active],
-    upper_right = [ R_outer,  R_outer, z_top_active]
+    lower_left=[-R_inner, -R_inner, z_bot_active],
+    upper_right=[R_inner, R_inner, z_top_active],
+    only_fissionable=True
 )
 source = openmc.IndependentSource(
     space       = src_box,
     constraints = {'fissionable': True}
 )
 
+mesh = openmc.RegularMesh()
+mesh.lower_left = [-R_outer, -R_outer, z_bot_active]
+mesh.upper_right = [R_outer, R_outer, z_top_active]
+mesh.dimension = [10, 10, 10]
+
 settings = openmc.Settings()
+settings.entropy_mesh = mesh
 settings.source    = source
-settings.batches   = 110     # 10 inactive + 100 active
-settings.inactive  = 10
+settings.batches   = 150     # 10 inactive + 100 active
+settings.inactive  = 30
 settings.particles = 50000
 # Temperature treatment for cross-section evaluation.
 #   'default'      : fallback temperature (K) when a material has none set
@@ -526,13 +601,43 @@ grpstr33 = [1.00000E-05, 4.17458E-01, 5.31578E-01, 3.92786E+00, 8.31528E+00,
             3.67879E+06, 6.06531E+06, 1.00000E+07, 2.00000E+07]
 
 # Filters --------------------------------------------------------------
-fuel_cell_filter  = openmc.CellFilter([cell_inner_act, cell_outer_act])
-inner_only_filter = openmc.CellFilter([cell_inner_act])
-outer_only_filter = openmc.CellFilter([cell_outer_act])
-all_cell_filter   = openmc.CellFilter([
-    cell_inner_act, cell_outer_act, cell_refl_act, cell_shield_act,
-    cell_lower_fuel_zone, cell_lower_outer_ring, cell_upper,
+fuel_cell_filter = openmc.CellFilter([
+    cell_inner_fuel,
+    cell_ctrl_r4,
+    cell_ctrl_sec,
+    cell_outer_fuel,
+    cell_ctrl_r7,
+    cell_refl_inner,   # inner reflector region with reflector material
+    cell_refl_outer    # outer reflector region with sodium (leaky)
 ])
+
+inner_only_filter = openmc.CellFilter([
+    cell_inner_fuel,
+    cell_ctrl_r4,
+    cell_ctrl_sec
+])
+
+outer_only_filter = openmc.CellFilter([
+    cell_outer_fuel,
+    cell_ctrl_r7,
+    cell_refl_inner,
+    cell_refl_outer
+])
+
+all_cell_filter = openmc.CellFilter([
+    cell_inner_fuel,
+    cell_ctrl_r4,
+    cell_ctrl_sec,
+    cell_outer_fuel,
+    cell_ctrl_r7,
+    cell_refl_inner,
+    cell_refl_outer,
+    cell_shield_act,
+    cell_lower_fuel_zone,
+    cell_lower_outer_ring,
+    cell_upper
+])
+
 
 leakage_surface_filter = openmc.SurfaceFilter([cyl_shield, plane_bot, plane_top])
 neutron_filter = openmc.ParticleFilter(['neutron'])
@@ -614,5 +719,3 @@ print("=" * 70 + "\n")
 # RUN
 # =============================================================================
 openmc.run()
-
-
