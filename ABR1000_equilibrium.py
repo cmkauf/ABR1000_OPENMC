@@ -170,7 +170,7 @@ HT9.set_density('g/cm3', 7.70)
 sodium = openmc.Material(name='Sodium')
 sodium.add_element('Na', 1.0)
 sodium.set_density('g/cm3', 0.860)
-sodium.temperature = 600.0   # K — applied directly to Na-filled upper plenum cell
+sodium.temperature = 900.0   # K — applied directly to Na-filled upper plenum cell
 
 # B4C with natural boron (19.9 atom% B-10) -----------------------------
 # Used for: radial shield, secondary control, row-4 primary control
@@ -215,7 +215,7 @@ inner_fuel = openmc.Material.mix_materials(
     'vo'
 )
 inner_fuel.name = 'inner_fuel_asm'
-inner_fuel.temperature = 600.0   # K — Doppler-broadened XS lookup
+inner_fuel.temperature = 900.0   # K — Doppler-broadened XS lookup
 
 # Outer fuel assembly (102 assemblies) ---------------------------------
 # Same intra-assembly design as inner; TRU enrichment zoning is at the
@@ -226,7 +226,7 @@ outer_fuel = openmc.Material.mix_materials(
     'vo'
 )
 outer_fuel.name = 'outer_fuel_asm'
-outer_fuel.temperature = 600.0   # K
+outer_fuel.temperature = 900.0   # K
 
 # Reflector assembly (114 assemblies — 91 solid HT9 pins + duct) -------
 # HT9: 75.3% (pins) + 9.2% (duct) = 84.5%; Na coolant = 15.5%
@@ -236,7 +236,7 @@ reflector = openmc.Material.mix_materials(
     'vo'
 )
 reflector.name = 'reflector_asm'
-reflector.temperature = 600.0   # K
+reflector.temperature = 900.0   # K
 
 # Radial shield assembly (66 assemblies) -------------------------------
 # 19 thick HT9 tubes containing natural B4C pellets (smear density 81%).
@@ -247,7 +247,7 @@ radial_shield = openmc.Material.mix_materials(
     'vo'
 )
 radial_shield.name = 'radial_shield_asm'
-radial_shield.temperature = 600.0   # K
+radial_shield.temperature = 900.0   # K
 
 # Lower axial shield material ------------------------------------------
 # The lower 124.5 cm of each fuel pin contains a solid HT9 plug (lower shield).
@@ -259,7 +259,7 @@ lower_shield_mat = openmc.Material.mix_materials(
     'vo'
 )
 lower_shield_mat.name = 'lower_axial_shield'
-lower_shield_mat.temperature = 600.0   # K
+lower_shield_mat.temperature = 900.0   # K
 
 # Primary control; row 4 (3 assemblies, natural boron) ------------------
 primary_ctrl_r4 = openmc.Material.mix_materials(
@@ -268,7 +268,7 @@ primary_ctrl_r4 = openmc.Material.mix_materials(
     'vo'
 )
 primary_ctrl_r4.name = 'primary_ctrl_row4_natB'
-primary_ctrl_r4.temperature = 600.0   # K
+primary_ctrl_r4.temperature = 900.0   # K
 
 # Primary control; row 7 (12 assemblies, 60% B-10 enrichment) ----------
 primary_ctrl_r7 = openmc.Material.mix_materials(
@@ -277,7 +277,7 @@ primary_ctrl_r7 = openmc.Material.mix_materials(
     'vo'
 )
 primary_ctrl_r7.name = 'primary_ctrl_row7_60B10'
-primary_ctrl_r7.temperature = 600.0   # K
+primary_ctrl_r7.temperature = 900.0   # K
 
 # Secondary control (4 assemblies, natural boron) ----------------------
 secondary_ctrl = openmc.Material.mix_materials(
@@ -286,7 +286,7 @@ secondary_ctrl = openmc.Material.mix_materials(
     'vo'
 )
 secondary_ctrl.name = 'secondary_ctrl_natB'
-secondary_ctrl.temperature = 600.0   # K
+secondary_ctrl.temperature = 900.0   # K
 
 # =============================================================================
 # MATERIALS FILE
@@ -364,7 +364,7 @@ lower_slab  = +plane_bot     & -plane_bot_act
 upper_slab  = +plane_top_act & -plane_top
 
 # ======================================================================
-# ACTIVE CORE AXIAL SLICE 
+# ACTIVE CORE AXIAL SLICE
 # ======================================================================
 
 cell_inner_act = openmc.Cell(
@@ -411,7 +411,7 @@ cell_lower_outer_ring = openmc.Cell(
 )
 
 # ======================================================================
-# UPPER AXIAL ZONE (fission gas plenum + sodium) 
+# UPPER AXIAL ZONE (fission gas plenum + sodium)
 # ----------------------------------------------------------------------
 # Gas plenum is sealed inside pins; above the core the open sodium
 # pool dominates. Modelled as pure sodium flowing upward.
@@ -614,3 +614,5 @@ print("=" * 70 + "\n")
 # RUN
 # =============================================================================
 openmc.run()
+
+
