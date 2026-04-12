@@ -1,9 +1,13 @@
 """
 ABR-1000 OpenMC Model; Equilibrium TRU-Recycled Metal Core
 
-Reference: Grandy & Seidensticker (eds.), "Advanced Burner Reactor 1000 MWth
-Reference Concept," ANL-AFCI-202 (ANL-ABR-4), Argonne National Laboratory,
+Reference: "Advanced Burner Reactor 1000 MWth Reference Concept," 
+ANL-AFCI-202 (ANL-ABR-4), Argonne National Laboratory,
 September 2007.
+
+Reference: "Benchmark for Neutronic Analysis of Sodium-cooled Fast Reactor Cores with Various Fuel Types and Core Sizes"
+JT03390630 (NEA-NSC-R(2015)9), Nuclear Energy Agency,
+February 2016.
 
 Design basis: EQUILIBRIUM TRU-RECYCLED metal core (U-TRU-10Zr / HT9 / Na)
   Core layout (Fig. II.1-1):
@@ -37,6 +41,12 @@ Geometry: homogenized cylindrical approximation of the hex assembly lattice.
 # %matplotlib inline
 import math
 import openmc
+
+# ======================================================================
+# TEMPERATURES
+# ======================================================================
+T_struct = 705.0 # K
+T_fuel = 807.0 # K
 
 # ======================================================================
 # BASE MATERIALS
@@ -170,7 +180,7 @@ HT9.set_density('g/cm3', 7.70)
 sodium = openmc.Material(name='Sodium')
 sodium.add_element('Na', 1.0)
 sodium.set_density('g/cm3', 0.860)
-sodium.temperature = 600.0   # K — applied directly to Na-filled upper plenum cell
+sodium.temperature = T_struct   # K, applied directly to Na-filled upper plenum cell
 
 # B4C with natural boron (19.9 atom% B-10) -----------------------------
 # Used for: radial shield, secondary control, row-4 primary control
@@ -214,8 +224,6 @@ inner_fuel = openmc.Material.mix_materials(
     [0.292,      0.451,   0.257],
     'vo'
 )
-inner_fuel.name = 'inner_fuel_asm'
-inner_fuel.temperature = 600.0   # K — Doppler-broadened XS lookup
 
 # Outer fuel assembly (102 assemblies) ---------------------------------
 # Same intra-assembly design as inner; TRU enrichment zoning is at the
@@ -225,8 +233,6 @@ outer_fuel = openmc.Material.mix_materials(
     [0.292,      0.451,   0.257],
     'vo'
 )
-outer_fuel.name = 'outer_fuel_asm'
-outer_fuel.temperature = 600.0   # K
 
 # Reflector assembly (114 assemblies — 91 solid HT9 pins + duct) -------
 # HT9: 75.3% (pins) + 9.2% (duct) = 84.5%; Na coolant = 15.5%
@@ -235,8 +241,7 @@ reflector = openmc.Material.mix_materials(
     [0.845, 0.155],
     'vo'
 )
-reflector.name = 'reflector_asm'
-reflector.temperature = 900.0   # K
+reflector.temperature = T_struct   # K
 
 # Radial shield assembly (66 assemblies) -------------------------------
 # 19 thick HT9 tubes containing natural B4C pellets (smear density 81%).
@@ -246,8 +251,7 @@ radial_shield = openmc.Material.mix_materials(
     [0.431,   0.297,  0.272],
     'vo'
 )
-radial_shield.name = 'radial_shield_asm'
-radial_shield.temperature = 900.0   # K
+radial_shield.temperature = T_struct   # K
 
 # Lower axial shield material ------------------------------------------
 # The lower 124.5 cm of each fuel pin contains a solid HT9 plug (lower shield).
@@ -258,8 +262,7 @@ lower_shield_mat = openmc.Material.mix_materials(
     [0.549, 0.451],
     'vo'
 )
-lower_shield_mat.name = 'lower_axial_shield'
-lower_shield_mat.temperature = 900.0   # K
+lower_shield_mat.temperature = T_struct   # K
 
 # Primary control; row 4 (3 assemblies, natural boron) ------------------
 primary_ctrl_r4 = openmc.Material.mix_materials(
@@ -267,8 +270,6 @@ primary_ctrl_r4 = openmc.Material.mix_materials(
     [0.428,   0.208,  0.364],
     'vo'
 )
-primary_ctrl_r4.name = 'primary_ctrl_row4_natB'
-primary_ctrl_r4.temperature = 900.0   # K
 
 # Primary control; row 7 (12 assemblies, 60% B-10 enrichment) ----------
 primary_ctrl_r7 = openmc.Material.mix_materials(
@@ -276,8 +277,6 @@ primary_ctrl_r7 = openmc.Material.mix_materials(
     [0.428,  0.208,  0.364],
     'vo'
 )
-primary_ctrl_r7.name = 'primary_ctrl_row7_60B10'
-primary_ctrl_r7.temperature = 900.0   # K
 
 # Secondary control (4 assemblies, natural boron) ----------------------
 secondary_ctrl = openmc.Material.mix_materials(
@@ -285,24 +284,33 @@ secondary_ctrl = openmc.Material.mix_materials(
     [0.428,   0.208,  0.364],
     'vo'
 )
-secondary_ctrl.name = 'secondary_ctrl_natB'
-secondary_ctrl.temperature = 900.0   # K
 
-# Artificial absorber material
-leak_absorber = openmc.Material(name='leakage_correction')
-leak_absorber.add_nuclide('B10', 1.0)  # strong absorber
-leak_absorber.set_density('g/cm3', 0.001)  # very low density
 
 # =============================================================================
 # MATERIALS FILE
 # =============================================================================
-materials_file = openmc.Materials([
-    inner_fuel, outer_fuel,
-    reflector, radial_shield, lower_shield_mat,
-    primary_ctrl_r4, primary_ctrl_r7, secondary_ctrl,
-    sodium, leak_absorber
+f_ctrl_inner = 7.0 / 85.0
+f_ctrl_outer = 12.0 / 114.0
+
+inner_core = openmc.Material.mix_materials(
+    [inner_fuel, primary_ctrl_r4, secondary_ctrl],
+    [1 - f_ctrl_inner, f_ctrl_inner*(3/7), f_ctrl_inner*(4/7)],
+    'vo'
+)
+inner_core.temperature = T_fuel
+
+outer_core = openmc.Material.mix_materials(
+    [outer_fuel, primary_ctrl_r7],
+    [1 - f_ctrl_outer, f_ctrl_outer],
+    'vo'
+)
+outer_core.temperature = T_fuel
+
+materials = openmc.Materials([
+    inner_core, outer_core, reflector, radial_shield, sodium
 ])
-materials_file.export_to_xml()
+
+materials.export_to_xml()
 
 # ======================================================================
 # GEOMETRY
@@ -338,168 +346,34 @@ def r_eff(n_asm):
     return math.sqrt(n_asm * A_hex / math.pi)
 
 # Radial boundary cylinders --------------------------------------------
-R_inner  = r_eff(85)
-R_outer  = r_eff(199)
-R_refl   = r_eff(313)
-R_shield = r_eff(379)
+R_inner = r_eff(85)
+R_outer = r_eff(199)
+R_refl  = r_eff(313)
+R_shield= r_eff(379)
 
 cyl_inner  = openmc.ZCylinder(r=R_inner)
 cyl_outer  = openmc.ZCylinder(r=R_outer)
 cyl_refl   = openmc.ZCylinder(r=R_refl)
-# Split reflector (inner + outer leaky ring)
-R_refl_inner = 0.9 * R_refl
-cyl_refl_inner = openmc.ZCylinder(r=R_refl_inner)
 cyl_shield = openmc.ZCylinder(r=R_shield, boundary_type='vacuum')
 
-# --- Control rod angular sectors (cylindrical approximation) ---
+z_bot = openmc.ZPlane(z0=-150, boundary_type='vacuum')
+z_top = openmc.ZPlane(z0=150, boundary_type='vacuum')
 
-# Use planes to carve angular wedges
-theta = math.pi / 6  # 30-degree wedge (adjustable)
+region_core   = -cyl_inner & +z_bot & -z_top
+region_outer  = +cyl_inner & -cyl_outer & +z_bot & -z_top
+region_refl   = +cyl_outer & -cyl_refl & +z_bot & -z_top
+region_shield = +cyl_refl & -cyl_shield & +z_bot & -z_top
 
-plane_ctrl1 = openmc.Plane(a=math.sin(theta), b=-math.cos(theta), c=0)
-plane_ctrl2 = openmc.Plane(a=-math.sin(theta), b=-math.cos(theta), c=0)
+cell_inner = openmc.Cell(fill=inner_core, region=region_core)
+cell_outer = openmc.Cell(fill=outer_core, region=region_outer)
+cell_refl  = openmc.Cell(fill=reflector, region=region_refl)
+cell_shield= openmc.Cell(fill=radial_shield, region=region_shield)
 
-# Region between planes (approx wedge)
-ctrl_wedge = +plane_ctrl1 & +plane_ctrl2
-
-# Define a thin leakage correction shell (~5–10 cm)
-delta = 10.0  # cm
-
-cyl_leak_inner = openmc.ZCylinder(r=R_shield - delta)
-cyl_leak_outer = cyl_shield  # existing vacuum boundary
-
-# Axial boundary planes ------------------------------------------------
-H_active  = 81.3
-H_lower   = 124.5
-H_plenum  = 124.5
-
-z_bot_active = -H_active / 2.0
-z_top_active = +H_active / 2.0
-z_bot        =  z_bot_active - H_lower
-z_top        =  z_top_active + H_plenum
-
-plane_bot     = openmc.ZPlane(z0=z_bot,        boundary_type='vacuum')
-plane_bot_act = openmc.ZPlane(z0=z_bot_active)
-plane_top_act = openmc.ZPlane(z0=z_top_active)
-plane_top     = openmc.ZPlane(z0=z_top,        boundary_type='vacuum')
-
-# Axial slab shorthand
-active_slab = +plane_bot_act & -plane_top_act
-lower_slab  = +plane_bot     & -plane_bot_act
-upper_slab  = +plane_top_act & -plane_top
-
-# ======================================================================
-# ACTIVE CORE AXIAL SLICE 
-# ======================================================================
-
-# Inner fuel (excluding control regions)
-cell_inner_fuel = openmc.Cell(
-    name='inner_core_fuel',
-    fill=inner_fuel,
-    region = -cyl_inner & active_slab & ~ctrl_wedge
-)
-
-# Primary control row 4 (natural B)
-cell_ctrl_r4 = openmc.Cell(
-    name='primary_ctrl_row4_region',
-    fill=primary_ctrl_r4,
-    region = -cyl_inner & active_slab & ctrl_wedge
-)
-
-# Secondary control (add smaller wedge)
-theta2 = math.pi / 12
-plane_sec1 = openmc.Plane(a=math.sin(theta2), b=-math.cos(theta2), c=0)
-plane_sec2 = openmc.Plane(a=-math.sin(theta2), b=-math.cos(theta2), c=0)
-sec_wedge = +plane_sec1 & +plane_sec2
-
-cell_ctrl_sec = openmc.Cell(
-    name='secondary_ctrl_region',
-    fill=secondary_ctrl,
-    region = -cyl_inner & active_slab & sec_wedge
-)
-
-# Outer fuel (excluding control wedge)
-cell_outer_fuel = openmc.Cell(
-    name='outer_core_fuel',
-    fill=outer_fuel,
-    region = +cyl_inner & -cyl_outer & active_slab & ~ctrl_wedge
-)
-
-# Primary control row 7 (60% B10)
-cell_ctrl_r7 = openmc.Cell(
-    name='primary_ctrl_row7_region',
-    fill=primary_ctrl_r7,
-    region = +cyl_inner & -cyl_outer & active_slab & ctrl_wedge
-)
-
-# Inner reflector (normal)
-cell_refl_inner = openmc.Cell(
-    name='reflector_inner',
-    fill=reflector,
-    region = +cyl_outer & -cyl_refl_inner & active_slab
-)
-
-# Outer reflector (leaky region)
-cell_refl_outer = openmc.Cell(
-    name='reflector_outer_leak',
-    fill=sodium,
-    region = +cyl_refl_inner & -cyl_refl & active_slab
-)
-
-cell_shield_act = openmc.Cell(
-    name   = 'radial_shield_active',
-    fill   = radial_shield,
-    region = +cyl_refl & -cyl_shield & active_slab
-)
-
-cell_leak = openmc.Cell(
-    name='leakage_shell',
-    fill=leak_absorber,
-    region=+cyl_leak_inner & -cyl_leak_outer & active_slab
-)
-
-# ======================================================================
-# LOWER AXIAL ZONE (HT9 lower shield pins)
-# ----------------------------------------------------------------------
-# Within fuel-assembly radius: lower HT9 shield plugs in sodium flow.
-# Radially beyond: reflector/shield duct structures continue downward.
-# ======================================================================
-
-cell_lower_fuel_zone = openmc.Cell(
-    name   = 'lower_axial_fuel_zone',
-    fill   = lower_shield_mat,
-    region = -cyl_outer & lower_slab
-)
-
-cell_lower_outer_ring = openmc.Cell(
-    name   = 'lower_axial_outer_ring',
-    fill   = reflector,       # reflector/shield duct material
-    region = +cyl_outer & -cyl_shield & lower_slab
-)
-
-# ======================================================================
-# UPPER AXIAL ZONE (fission gas plenum + sodium) 
-# ----------------------------------------------------------------------
-# Gas plenum is sealed inside pins; above the core the open sodium
-# pool dominates. Modelled as pure sodium flowing upward.
-# ======================================================================
-
-cell_upper = openmc.Cell(
-    name   = 'upper_axial_plenum',
-    fill   = sodium,
-    region = -cyl_shield & upper_slab
-)
-
-# Assemble universe and geometry ---------------------------------------
-main_universe = openmc.Universe(cells=[
-    cell_inner_fuel, cell_ctrl_r4, cell_ctrl_sec,
-    cell_outer_fuel, cell_ctrl_r7,
-    cell_refl_inner, cell_refl_outer,  cell_shield_act,
-    cell_lower_fuel_zone, cell_lower_outer_ring,
-    cell_upper, cell_leak
+universe = openmc.Universe(cells=[
+    cell_inner, cell_outer, cell_refl, cell_shield
 ])
 
-geometry = openmc.Geometry(main_universe)
+geometry = openmc.Geometry(universe)
 geometry.export_to_xml()
 
 # =============================================================================
@@ -511,12 +385,11 @@ geometry.export_to_xml()
 # obvious in the YZ slice.
 # =============================================================================
 dict_matcolors = {
-    inner_fuel:       (255, 200,  60),   # yellow        - inner fuel zone
-    outer_fuel:       (255, 140,  40),   # orange        - outer fuel zone
-    reflector:        (140, 140, 160),   # blue-gray     - HT9 radial reflector
-    radial_shield:    ( 80,  80,  90),   # dark gray     - B4C radial shield
-    lower_shield_mat: (110, 110, 130),   # gray          - lower HT9 plug zone
-    sodium:           (120, 200, 240),   # light blue    - Na coolant / plenum
+    inner_core:   (255, 200, 60),
+    outer_core:   (255, 140, 40),
+    reflector:    (140, 140, 160),
+    radial_shield:(80, 80, 90),
+    sodium:       (120, 200, 240),
 }
 
 plot_xy = openmc.Plot.from_geometry(geometry)
@@ -532,7 +405,7 @@ plot_yz = openmc.Plot.from_geometry(geometry)
 plot_yz.filename = 'ABR1000_yz_axial'
 plot_yz.basis    = 'yz'
 plot_yz.origin   = (0.0, 0.0, 0.0)
-plot_yz.width    = (2.2 * R_shield, 1.05 * (z_top - z_bot))
+plot_yz.width = (2.2 * R_shield, 1.05 * (z_top.z0 - z_bot.z0))
 plot_yz.pixels   = (1500, 2000)
 plot_yz.color_by = 'material'
 plot_yz.colors   = dict_matcolors
@@ -544,35 +417,28 @@ plots_file.export_to_xml()
 # SETTINGS
 # =============================================================================
 
-# Restrict fission source to the active fissile core region.
-src_box = openmc.stats.Box(
-    lower_left=[-R_inner, -R_inner, z_bot_active],
-    upper_right=[R_inner, R_inner, z_top_active],
-    only_fissionable=True
-)
 source = openmc.IndependentSource(
-    space       = src_box,
-    constraints = {'fissionable': True}
+    space=openmc.stats.Box(
+        [-R_shield, -R_shield, -150],
+        [ R_shield,  R_shield,  150],
+        only_fissionable=True
+    )
 )
-
-mesh = openmc.RegularMesh()
-mesh.lower_left = [-R_outer, -R_outer, z_bot_active]
-mesh.upper_right = [R_outer, R_outer, z_top_active]
-mesh.dimension = [10, 10, 10]
 
 settings = openmc.Settings()
+settings.source = source
+settings.batches = 150
+settings.inactive = 30
+settings.particles = 100000
+
+mesh = openmc.RegularMesh()
+mesh.lower_left  = [-R_shield, -R_shield, -150]
+mesh.upper_right = [ R_shield,  R_shield,  150]
+mesh.dimension   = [20, 20, 40]
+
 settings.entropy_mesh = mesh
-settings.source    = source
-settings.batches   = 150     # 10 inactive + 100 active
-settings.inactive  = 30
-settings.particles = 50000
-# Temperature treatment for cross-section evaluation.
-#   'default'      : fallback temperature (K) when a material has none set
-#   'method'       : 'interpolation' (blend between XS grid points) or
-#                    'nearest' (snap to closest grid point)
-#   'tolerance'    : max distance (K) allowed when method='nearest'
-# Per-material .temperature assignments (below) override this default.
-settings.temperature = {'default': 600.0, 'method': 'interpolation'}
+settings.temperature = {'default': T_struct, 'method': 'interpolation'}
+
 settings.export_to_xml()
 
 # =============================================================================
@@ -591,95 +457,89 @@ openmc.plot_geometry()
 #   (5) Group-wise flux + nu-fission in fuel (ANL33 group structure)
 # =============================================================================
 
-# 33-group energy structure ------
-grpstr33 = [1.00000E-05, 4.17458E-01, 5.31578E-01, 3.92786E+00, 8.31528E+00,
-            1.37096E+01, 2.26033E+01, 3.72665E+01, 6.14421E+01, 1.01301E+02,
-            1.67017E+02, 2.75364E+02, 4.53999E+02, 7.48518E+02, 1.23410E+03,
-            2.03468E+03, 3.35462E+03, 5.53084E+03, 9.11881E+03, 1.50344E+04,
-            2.47875E+04, 4.08677E+04, 6.73794E+04, 1.11090E+05, 1.83156E+05,
-            3.01974E+05, 4.97871E+05, 8.20850E+05, 1.35335E+06, 2.23130E+06,
-            3.67879E+06, 6.06531E+06, 1.00000E+07, 2.00000E+07]
+# =============================================================================
+# TALLIES — OECD/NEA SFR BENCHMARK SUITE
+# =============================================================================
 
-# Filters --------------------------------------------------------------
-fuel_cell_filter = openmc.CellFilter([
-    cell_inner_fuel,
-    cell_ctrl_r4,
-    cell_ctrl_sec,
-    cell_outer_fuel,
-    cell_ctrl_r7,
-    cell_refl_inner,   # inner reflector region with reflector material
-    cell_refl_outer    # outer reflector region with sodium (leaky)
+# --- 33-group energy structure (ANL/fast spectrum standard) ---
+grpstr33 = [
+    1.00000E-05, 4.17458E-01, 5.31578E-01, 3.92786E+00, 8.31528E+00,
+    1.37096E+01, 2.26033E+01, 3.72665E+01, 6.14421E+01, 1.01301E+02,
+    1.67017E+02, 2.75364E+02, 4.53999E+02, 7.48518E+02, 1.23410E+03,
+    2.03468E+03, 3.35462E+03, 5.53084E+03, 9.11881E+03, 1.50344E+04,
+    2.47875E+04, 4.08677E+04, 6.73794E+04, 1.11090E+05, 1.83156E+05,
+    3.01974E+05, 4.97871E+05, 8.20850E+05, 1.35335E+06, 2.23130E+06,
+    3.67879E+06, 6.06531E+06, 1.00000E+07, 2.00000E+07
+]
+
+# --- Filters ---
+fuel_filter   = openmc.CellFilter([cell_inner, cell_outer])
+inner_filter  = openmc.CellFilter([cell_inner])
+outer_filter  = openmc.CellFilter([cell_outer])
+
+all_cells_filter = openmc.CellFilter([
+    cell_inner, cell_outer, cell_refl, cell_shield
 ])
 
-inner_only_filter = openmc.CellFilter([
-    cell_inner_fuel,
-    cell_ctrl_r4,
-    cell_ctrl_sec
-])
-
-outer_only_filter = openmc.CellFilter([
-    cell_outer_fuel,
-    cell_ctrl_r7,
-    cell_refl_inner,
-    cell_refl_outer
-])
-
-all_cell_filter = openmc.CellFilter([
-    cell_inner_fuel,
-    cell_ctrl_r4,
-    cell_ctrl_sec,
-    cell_outer_fuel,
-    cell_ctrl_r7,
-    cell_refl_inner,
-    cell_refl_outer,
-    cell_shield_act,
-    cell_lower_fuel_zone,
-    cell_lower_outer_ring,
-    cell_upper
-])
-
-
-leakage_surface_filter = openmc.SurfaceFilter([cyl_shield, plane_bot, plane_top])
+leakage_filter = openmc.SurfaceFilter([cyl_shield, z_bot, z_top])
 neutron_filter = openmc.ParticleFilter(['neutron'])
 energy_filter  = openmc.EnergyFilter(grpstr33)
 
 tallies = openmc.Tallies()
 
-# (1) Total core power -------------------------------------------------
+# =============================================================================
+# (1) TOTAL CORE POWER
+# =============================================================================
 t_total_power = openmc.Tally(name='total_power')
-t_total_power.filters = [fuel_cell_filter]
+t_total_power.filters = [fuel_filter]
 t_total_power.scores  = ['kappa-fission', 'fission', 'nu-fission']
 tallies.append(t_total_power)
 
-# (2) Zone-wise power split (inner vs. outer) --------------------------
-t_inner_power = openmc.Tally(name='inner_zone_power')
-t_inner_power.filters = [inner_only_filter]
+# =============================================================================
+# (2) POWER SPLIT (INNER vs OUTER)
+# =============================================================================
+t_inner_power = openmc.Tally(name='inner_power')
+t_inner_power.filters = [inner_filter]
 t_inner_power.scores  = ['kappa-fission', 'fission']
 tallies.append(t_inner_power)
 
-t_outer_power = openmc.Tally(name='outer_zone_power')
-t_outer_power.filters = [outer_only_filter]
+t_outer_power = openmc.Tally(name='outer_power')
+t_outer_power.filters = [outer_filter]
 t_outer_power.scores  = ['kappa-fission', 'fission']
 tallies.append(t_outer_power)
 
-# (3) System neutron balance -------------------------------------------
+# =============================================================================
+# (3) NEUTRON BALANCE
+# =============================================================================
 t_balance = openmc.Tally(name='neutron_balance')
-t_balance.filters = [neutron_filter, all_cell_filter]
-t_balance.scores  = ['absorption', 'nu-fission', '(n,2n)', '(n,3n)']
+t_balance.filters = [neutron_filter, all_cells_filter]
+t_balance.scores  = [
+    'absorption',
+    'nu-fission',
+    '(n,2n)',
+    '(n,3n)'
+]
 tallies.append(t_balance)
 
-# (4) System leakage through vacuum surfaces ---------------------------
+# =============================================================================
+# (4) SYSTEM LEAKAGE
+# =============================================================================
 t_leakage = openmc.Tally(name='system_leakage')
-t_leakage.filters = [neutron_filter, leakage_surface_filter]
+t_leakage.filters = [neutron_filter, leakage_filter]
 t_leakage.scores  = ['current']
 tallies.append(t_leakage)
 
-# (5) Group-wise flux spectrum in fuel zones ---------------------------
-t_flux_spec = openmc.Tally(name='fuel_flux_spectrum_33g')
-t_flux_spec.filters = [fuel_cell_filter, energy_filter]
-t_flux_spec.scores  = ['flux', 'nu-fission']
-tallies.append(t_flux_spec)
+# =============================================================================
+# (5) 33-GROUP FLUX + PRODUCTION SPECTRUM
+# =============================================================================
+t_flux_33g = openmc.Tally(name='flux_33g')
+t_flux_33g.filters = [fuel_filter, energy_filter]
+t_flux_33g.scores  = ['flux', 'nu-fission']
+tallies.append(t_flux_33g)
 
+# =============================================================================
+# EXPORT
+# =============================================================================
 tallies.export_to_xml()
 
 # =============================================================================
@@ -695,9 +555,6 @@ print(f"  Fuel pin OD / clad thickness      0.755 / 0.056 cm")
 print(f"  Fuel slug OD (75% smear)          0.557 cm")
 print(f"  Wire wrap diameter                0.131 cm")
 print(f"  P/D ratio                         1.180")
-print(f"  Active core height                {H_active:.1f} cm")
-print(f"  Lower HT9 shield length           {H_lower:.1f} cm")
-print(f"  Fission gas plenum length         {H_plenum:.1f} cm")
 print(f"  Fuel smear density                75 % TD")
 print(f"  TRU enrichment (avg, recycle)     22.1 wt% in HM  (Table II.1-3)")
 print(f"  Zr content                        10.0 wt% of alloy")
@@ -708,9 +565,6 @@ print(f"  R_outer  (199 asm)   {R_outer:.2f} cm")
 print(f"  R_refl   (313 asm)   {R_refl:.2f} cm")
 print(f"  R_shield (379 asm)   {R_shield:.2f} cm")
 print()
-V_act = 180 * A_hex * H_active
-print(f"  Active core volume   {V_act/1000:.1f} L")
-print(f"  Power density check  {1e6/V_act:.1f} kW/L  (ANL: 303 kW/L)")
 print(f"  Coolant inlet/outlet 355 / 510 deg-C")
 print(f"  Na density (avg T)   0.860 g/cm3  (~432 deg-C average)")
 print("=" * 70 + "\n")
