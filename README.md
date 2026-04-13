@@ -7,3 +7,4 @@ References:
 - Nuc. Eng. Design 313 1-9 (2017) A. Ponomarev, A. Bednarova, K. Mikityuk, "New Sodium Fast Reactor Neutronics Benchmark," PHYSOR 2018
 - ANL-AFCI-202 (ANL-ABR-4) (2007). Edited by C. Grandy and R. Seidensticker. Technical Contributors: J. Cahalan, T. Fanning, M. Farmer, C. Grandy, E. Jin, T. Kim, R. Kellogg, L. Krajtl, S. Lomperski, A. Moisseytsev, Y. Momozaki, Y. Park, C. Reed, F. Salev, R. Seidensticker, J. Sienicki, Y. Tang, C. Tzanos, T. Wei, W. Yang, and Y. Chikazawa (JAEA Visiting Scientist), "Advanced Burner Reactor 1000MWth Reference Concept"
 - T. K. Kim and T. A. Taiwo (2012), "Numerical Benchmark Results for 1000MWth Sodium-cooled Fast Reactor"
+- "Benchmark for Neutronic Analysis of Sodium-cooled Fast Reactor Cores with Various Fuel Types and Core Sizes" JT03390630 (NEA-NSC-R(2015)9), Nuclear Energy Agency, February 2016.
