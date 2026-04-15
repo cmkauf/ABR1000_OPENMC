@@ -1,86 +1,38 @@
 """
 ABR-1000 OpenMC Depletion Model — Equilibrium TRU-Recycled Metal Core
-One full irradiation cycle (328.5 EFPD) as a function of burnup.
+One full irradiation cycle as a function of burnup (328.5 EFPD).
 
 References:
   [ANL]  ANL-AFCI-202, Argonne National Laboratory, September 2007.
   [NEA]  NEA-NSC-R(2015)9, Nuclear Energy Agency, February 2016.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DEPLETION DESIGN BASIS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Thermal power:         1000 MWt  (constant throughout cycle)
-  Cycle length:          328.5 EFPD  (12 months × 90% capacity factor)
-  HM inventory (BOEC):  ~13.2 MT  ([ANL] Table II.1-3)
-  Specific power:        ~73 kW/kg HM
-  Expected k swing:      ~2.2% Δk  (BOEC→EOEC, [ANL] Table II.1-3)
-  Expected discharge BU: ~93 MWd/kg  (4-batch fuel management)
-
-  Timesteps: 12 geometric steps (0.36 → 137.7 d), finer at start to
-  capture short-lived fission product buildup (Xe-135, Sm-149).
-
-  Integrator: CECMIntegrator (predictor-corrector, 2nd-order accurate).
-  Substeps:   2 OpenMC transport solves per timestep.
-
-DEPLETABLE MATERIALS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Only the 10 active-core sub-zone materials (5 axial × 2 radial) are
-  marked depletable=True. Structural, coolant, shield, and reflector
-  materials are not depleted (no fission, negligible transmutation).
-
-CHAIN FILE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Set CHAIN_FILE at the top of this script to your local path. Common
-  locations:
-    ENDF/B-VIII.0 SFR chain: chain_endfb80_sfr.xml
-    ENDF/B-VIII.0 full:      chain_endfb80.xml
-  The SFR chain is preferred for fast-spectrum depletion; it includes
-  optimised branching ratios for heavy actinides at fast energies.
-
-POST-PROCESSING
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  After the run, results are read from openmc.deplete.Results and
-  printed / saved to CSV:
-    - k-eff vs. time and burnup
-    - Actinide inventory (U, Pu, Am, Cm, TRU, HM) vs. burnup
-    - TRU consumption rate and conversion ratio
-
-  The geometry and neutronics model are identical to v5 (all three
-  bias-reduction tweaks applied).
 """
 
-import math
+import math, csv
 import numpy as np
 import openmc
 import openmc.deplete
 
 # ======================================================================
-# USER CONFIGURATION
+# USER CONFIGURATION  
 # ======================================================================
-# Path to your OpenMC depletion chain file.
-# Use the SFR-optimised chain if available; fall back to the full chain.
-CHAIN_FILE = 'chain_endfb80_sfr.xml'   # <-- set this to your path
+CHAIN_FILE     = 'chain_endfb80_sfr.xml'  # path to depletion chain file
+POWER_W        = 1_000e6                  # reactor thermal power [W]
+CYCLE_EFPD     = 328.5                    # cycle length [effective full-power days]
+M_HM_KG        = 13_200.0                 # reference HM mass [kg] for burnup axis
+THREADS        = 6                        # OpenMC thread count
 
-# Thermal power [W]
-POWER_W = 1000.0e6
-
-# Cycle length [effective full-power days] = 12 months × 90% capacity factor
-CYCLE_EFPD = 328.5
-
-# Depletion particles per batch (fewer than k-eff run is acceptable
-# since depletion only needs accurate one-group cross sections, not k)
-DEPL_PARTICLES = 20000
-
-# k-eff transport solve settings (used at each depletion timestep)
-DEPL_BATCHES  = 60
-DEPL_INACTIVE = 20
+# Transport settings per depletion step
+DEPL_BATCHES   = 60
+DEPL_INACTIVE  = 20
+DEPL_PARTICLES = 20_000
 
 # ======================================================================
-# TEMPERATURES  [NEA] Table 2.15
+# TEMPERATURES  
 # ======================================================================
-T_cool   = 432.5 + 273.15
+T_cool   = 432.5 + 273.15   # K  coolant + structural average
 T_struct = T_cool
-T_fuel   = 534.0 + 273.15
+T_fuel   = 534.0 + 273.15   # K  average fuel temperature
 
 # ======================================================================
 # GEOMETRY CONSTANTS
@@ -96,34 +48,33 @@ R_outer  = r_eff(199)
 R_refl   = r_eff(313)
 R_shield = r_eff(379)
 
-H_active  = 85.82
-H_lower_r = 125.16
-H_lower_s = 35.76
-H_bond_na = 20.06
-H_gas_pl  = 101.01
-H_upper_s = 112.39
+H_lower_struct = 35.76    # cm
+H_lower_refl   = 125.16   # cm
+H_active       = 85.82    # cm 
+H_bond_na      = 20.06    # cm
+H_gas_plenum   = 101.01   # cm
+H_upper_struct = 112.39   # cm
 
-z_fuel_bot = -H_active / 2.0
-z_fuel_top = +H_active / 2.0
-z_lr_bot   = z_fuel_bot - H_lower_r
-z_ls_bot   = z_lr_bot   - H_lower_s
-z_bond_top = z_fuel_top + H_bond_na
-z_pl_top   = z_bond_top + H_gas_pl
-z_us_top   = z_pl_top   + H_upper_s
-
-N_AX = 5
-dz   = H_active / N_AX
-ax_z = [z_fuel_bot + i * dz for i in range(N_AX + 1)]
+N_AX       = 5                            # axial fuel composition zones
+dz         = H_active / N_AX              # 17.164 cm per zone
+z_act_bot  = -H_active / 2.0              # -42.91 cm
+z_act_top  = +H_active / 2.0              # +42.91 cm
+z_ax       = [z_act_bot + i * dz for i in range(N_AX + 1)]
+z_bond_top = z_act_top  + H_bond_na
+z_plen_top = z_bond_top + H_gas_plenum
+z_top      = z_plen_top + H_upper_struct
+z_lrefl_bot= z_act_bot  - H_lower_refl
+z_bot      = z_lrefl_bot - H_lower_struct
 
 # ======================================================================
-# VOLUME FRACTIONS  [NEA] Table 2.20
+# VOLUME FRACTIONS  
 # ======================================================================
 VF_FUEL = 0.3900
 VF_NA   = 0.3534
 VF_HT9  = 0.2566
 
 # ======================================================================
-# PURE-MATERIAL NUMBER DENSITIES  [NEA] Table 2.21  (a/b-cm)
+# PURE-MATERIAL NUMBER DENSITIES  
 # ======================================================================
 ND_NA      = 2.2272e-02
 ND_HT9_Fe  = 6.9715e-02
@@ -139,7 +90,7 @@ ND_LS_Mn   = 5.0846e-04
 ND_LS_Mo   = 4.3524e-04
 
 # ======================================================================
-# FUEL-PIN NUMBER DENSITIES  [NEA] Tables 2.22 / 2.23
+# FUEL-PIN NUMBER DENSITIES 
 # ======================================================================
 _mean = lambda lst: sum(lst) / len(lst)
 
@@ -162,10 +113,9 @@ _I_zones = {
     'Cm244':    [6.7240e-5, 6.5722e-5, 6.5622e-5, 6.5349e-5, 6.5394e-5],
     'Cm245':    [1.7397e-5, 1.6743e-5, 1.6663e-5, 1.6696e-5, 1.7026e-5],
     'Cm246':    [9.2285e-6, 9.1426e-6, 9.1307e-6, 9.1364e-6, 9.1805e-6],
-    'Zr':       [7.2802e-3, 7.2802e-3, 7.2802e-3, 7.2802e-3, 7.2802e-3],
+    'Zr':       [7.2802e-3] * N_AX,
     'Mo_fp':    [9.2873e-4, 1.1464e-3, 1.2031e-3, 1.0625e-3, 7.4065e-4],
 }
-
 _O_zones = {
     'U234':     [1.6317e-6, 1.5766e-6, 1.5638e-6, 1.5894e-6, 1.6552e-6],
     'U235':     [3.0822e-5, 2.9870e-5, 2.9561e-5, 3.0391e-5, 3.2250e-5],
@@ -185,22 +135,26 @@ _O_zones = {
     'Cm244':    [8.0107e-5, 7.8889e-5, 7.8847e-5, 7.8479e-5, 7.8359e-5],
     'Cm245':    [2.0200e-5, 1.9678e-5, 1.9613e-5, 1.9635e-5, 1.9913e-5],
     'Cm246':    [1.0443e-5, 1.0371e-5, 1.0361e-5, 1.0367e-5, 1.0410e-5],
-    'Zr':       [7.2802e-3, 7.2802e-3, 7.2802e-3, 7.2802e-3, 7.2802e-3],
+    'Zr':       [7.2802e-3] * N_AX,
     'Mo_fp':    [8.1524e-4, 1.0174e-3, 1.0697e-3, 9.4870e-4, 6.6172e-4],
 }
+# Zone-averaged scalars for summary printout
+_I = {k: (_mean(v) if isinstance(v, list) else v) for k, v in _I_zones.items()}
+_O = {k: (_mean(v) if isinstance(v, list) else v) for k, v in _O_zones.items()}
 
 # ======================================================================
 # MATERIAL BUILDERS
 # ======================================================================
 _ACTINIDES = [
-    'U234','U235','U236','U238',
+    'U234', 'U235', 'U236', 'U238',
     'Np237',
-    'Pu238','Pu239','Pu240','Pu241','Pu242',
-    'Am241','Am242_m1','Am243',
-    'Cm242','Cm243','Cm244','Cm245','Cm246',
+    'Pu238', 'Pu239', 'Pu240', 'Pu241', 'Pu242',
+    'Am241', 'Am242_m1', 'Am243',
+    'Cm242', 'Cm243', 'Cm244', 'Cm245', 'Cm246',
 ]
 
 def make_active_zone(zone_data, iz, label, T, depletable=False):
+    """Homogenised active-core material for axial zone iz (0..N_AX-1)."""
     m = openmc.Material(name=f'active_{label}_z{iz}')
     for nuc in _ACTINIDES:
         m.add_nuclide(nuc, zone_data[nuc][iz] * VF_FUEL)
@@ -208,7 +162,7 @@ def make_active_zone(zone_data, iz, label, T, depletable=False):
     mo_total = zone_data['Mo_fp'][iz] * VF_FUEL + ND_HT9_Mo * VF_HT9
     m.add_element('Mo', mo_total)
     m.add_nuclide('Na23', ND_NA * VF_NA)
-    m.add_element('Fe',   ND_HT9_Fe * VF_HT9)
+    m.add_element('Fe',   ND_HT9_Fe * VF_HT9)   # natural isotope expansion
     m.add_element('Ni',   ND_HT9_Ni * VF_HT9)
     m.add_element('Cr',   ND_HT9_Cr * VF_HT9)
     m.add_nuclide('Mn55', ND_HT9_Mn * VF_HT9)
@@ -221,11 +175,12 @@ def make_active_zone(zone_data, iz, label, T, depletable=False):
     )
     m.set_density('atom/b-cm', total)
     m.temperature = T
-    m.depletable = depletable
+    m.depletable   = depletable
     return m
 
 
 def make_na_ht9(vf_na, vf_ht9, name, T):
+    """Na + HT9 structural mixture (not depletable)."""
     assert abs(vf_na + vf_ht9 - 1.0) < 1e-5, f"{name}: {vf_na+vf_ht9}"
     m = openmc.Material(name=name)
     m.add_nuclide('Na23',  ND_NA     * vf_na)
@@ -241,7 +196,7 @@ def make_na_ht9(vf_na, vf_ht9, name, T):
     return m
 
 # ======================================================================
-# NON-FUEL MATERIALS  (depletable=False, default)
+# NON-FUEL MATERIALS  (depletable=False)
 # ======================================================================
 lower_refl_mat   = make_na_ht9(0.3534, 0.6466, 'lower_reflector',  T_struct)
 upper_struct_mat = make_na_ht9(0.3534, 0.6466, 'upper_structure',   T_struct)
@@ -261,7 +216,7 @@ lower_struct_mat.temperature = T_struct
 
 radial_refl_mat = make_na_ht9(0.1550, 0.8450, 'radial_reflector', T_struct)
 
-_VF_sh_Na  = 0.1710; _VF_sh_HT9 = 0.2968; _VF_sh_B4C = 1.0 - _VF_sh_Na - _VF_sh_HT9
+_VF_sh_Na = 0.1710; _VF_sh_HT9 = 0.2968; _VF_sh_B4C = 1.0 - _VF_sh_Na - _VF_sh_HT9
 radial_shield = openmc.Material(name='radial_shield')
 radial_shield.add_nuclide('Na23',  ND_NA      * _VF_sh_Na)
 radial_shield.add_element('Fe',    ND_HT9_Fe  * _VF_sh_HT9)
@@ -274,11 +229,11 @@ radial_shield.add_nuclide('B11',   6.3609e-02 * _VF_sh_B4C)
 radial_shield.add_nuclide('C12',   1.9657e-02 * _VF_sh_B4C)
 radial_shield.set_density('atom/b-cm',
     ND_NA * _VF_sh_Na
-    + (ND_HT9_Fe+ND_HT9_Ni+ND_HT9_Cr+ND_HT9_Mn+ND_HT9_Mo) * _VF_sh_HT9
-    + (1.5018e-2+6.3609e-2+1.9657e-2) * _VF_sh_B4C)
+    + (ND_HT9_Fe + ND_HT9_Ni + ND_HT9_Cr + ND_HT9_Mn + ND_HT9_Mo) * _VF_sh_HT9
+    + (1.5018e-2 + 6.3609e-2 + 1.9657e-2) * _VF_sh_B4C)
 radial_shield.temperature = T_struct
 
-_VF_ca_Na=0.2883; _VF_ca_HT9=0.2077; _VF_ca_B4C=1.0-_VF_ca_Na-_VF_ca_HT9
+_VF_ca_Na = 0.2883; _VF_ca_HT9 = 0.2077; _VF_ca_B4C = 1.0 - _VF_ca_Na - _VF_ca_HT9
 ctrl_absorber = openmc.Material(name='ctrl_absorber')
 ctrl_absorber.add_nuclide('Na23',  ND_NA      * _VF_ca_Na)
 ctrl_absorber.add_element('Fe',    ND_HT9_Fe  * _VF_ca_HT9)
@@ -291,38 +246,30 @@ ctrl_absorber.add_nuclide('B11',   2.8884e-02 * _VF_ca_B4C)
 ctrl_absorber.add_nuclide('C12',   2.0632e-02 * _VF_ca_B4C)
 ctrl_absorber.set_density('atom/b-cm',
     ND_NA * _VF_ca_Na
-    + (ND_HT9_Fe+ND_HT9_Ni+ND_HT9_Cr+ND_HT9_Mn+ND_HT9_Mo) * _VF_ca_HT9
-    + (5.3642e-2+2.8884e-2+2.0632e-2) * _VF_ca_B4C)
+    + (ND_HT9_Fe + ND_HT9_Ni + ND_HT9_Cr + ND_HT9_Mn + ND_HT9_Mo) * _VF_ca_HT9
+    + (5.3642e-2 + 2.8884e-2 + 2.0632e-2) * _VF_ca_B4C)
 ctrl_absorber.temperature = T_struct
 
 ctrl_empty = make_na_ht9(0.9074, 0.0926, 'ctrl_empty_duct', T_struct)
 
 # ======================================================================
-# CONTROL FRACTIONS AND ROD INSERTION
+# CONTROL ASSEMBLY FRACTIONS
 # ======================================================================
-f_ci = 7.0  / 85.0
-f_co = 12.0 / 114.0
-F_INSERT = 0.50  # BOEC partial rod insertion fraction
+f_ci = 7.0  / 85.0     # inner zone: 7 control / 85 total assemblies
+f_co = 12.0 / 114.0    # outer zone: 12 control / 114 total assemblies
 
-def make_active_blended(fuel_mat, f_ctrl, label, T):
-    """Three-way blend: fuel + partial absorber + empty duct."""
-    f_fuel  = 1.0 - f_ctrl
-    f_abs   = f_ctrl * F_INSERT
-    f_empty = f_ctrl * (1.0 - F_INSERT)
-    m = openmc.Material.mix_materials(
-        [fuel_mat,  ctrl_absorber, ctrl_empty],
-        [f_fuel,    f_abs,         f_empty],
-        'vo'
-    )
-    m.name  = label
+def blend_two(m_base, f_base, m_ctrl, f_ctrl, name, T, depletable=False):
+    """Volume-fraction blend of two materials."""
+    assert abs(f_base + f_ctrl - 1.0) < 1e-9
+    m = openmc.Material.mix_materials([m_base, m_ctrl], [f_base, f_ctrl], 'vo')
+    m.name       = name
     m.temperature = T
-    # Preserve depletable flag from the fuel material
-    m.depletable = fuel_mat.depletable
+    m.depletable  = depletable
     return m
 
 # ======================================================================
-# ACTIVE-CORE MATERIALS — marked depletable=True
-# 10 materials: 5 axial zones × 2 radial zones
+# DEPLETABLE ACTIVE-CORE MATERIALS  (10 total: 5 axial x 2 radial)
+# Rods fully withdrawn in active zone (BOEC convention for k_BOC).
 # ======================================================================
 inner_fuel_mats = [
     make_active_zone(_I_zones, iz, 'inner', T_fuel, depletable=True)
@@ -332,41 +279,42 @@ outer_fuel_mats = [
     make_active_zone(_O_zones, iz, 'outer', T_fuel, depletable=True)
     for iz in range(N_AX)
 ]
-
 inner_ac_mats = [
-    make_active_blended(inner_fuel_mats[iz], f_ci, f'inner_ac_z{iz}', T_fuel)
+    blend_two(inner_fuel_mats[iz], 1 - f_ci, ctrl_empty, f_ci,
+              f'inner_ac_z{iz}', T_fuel, depletable=True)
     for iz in range(N_AX)
 ]
 outer_ac_mats = [
-    make_active_blended(outer_fuel_mats[iz], f_co, f'outer_ac_z{iz}', T_fuel)
+    blend_two(outer_fuel_mats[iz], 1 - f_co, ctrl_empty, f_co,
+              f'outer_ac_z{iz}', T_fuel, depletable=True)
     for iz in range(N_AX)
 ]
 
-# ======================================================================
-# NON-ACTIVE AXIAL ZONE STRUCTURAL BLENDS
-# ======================================================================
-def blend_struct(base_mat, f_ctrl, name):
-    m = openmc.Material.mix_materials(
-        [base_mat, ctrl_empty], [1.0-f_ctrl, f_ctrl], 'vo'
-    )
-    m.name = name
-    m.temperature = T_struct
-    return m
+# ── Material volumes  [cm^3]  ─────────────────────────────────────────
+#   V_inner_zone = pi * R_inner^2 * (H_active / N_AX)
+#   V_outer_zone = pi * (R_outer^2 - R_inner^2) * (H_active / N_AX)
+_V_inner_zone = math.pi * R_inner**2               * (H_active / N_AX)
+_V_outer_zone = math.pi * (R_outer**2 - R_inner**2) * (H_active / N_AX)
 
-inner_ls = blend_struct(lower_struct_mat, f_ci, 'inner_ls')
-outer_ls = blend_struct(lower_struct_mat, f_co, 'outer_ls')
-inner_lr = blend_struct(lower_refl_mat,   f_ci, 'inner_lr')
-outer_lr = blend_struct(lower_refl_mat,   f_co, 'outer_lr')
-inner_bn = blend_struct(bond_na_mat,      f_ci, 'inner_bn')
-outer_bn = blend_struct(bond_na_mat,      f_co, 'outer_bn')
-inner_gp = blend_struct(plenum_mat,       f_ci, 'inner_gp')
-outer_gp = blend_struct(plenum_mat,       f_co, 'outer_gp')
-inner_us = blend_struct(upper_struct_mat, f_ci, 'inner_us')
-outer_us = blend_struct(upper_struct_mat, f_co, 'outer_us')
+for iz in range(N_AX):
+    inner_ac_mats[iz].volume = _V_inner_zone   # cm^3
+    outer_ac_mats[iz].volume = _V_outer_zone   # cm^3
 
-# ======================================================================
-# MATERIALS COLLECTION
-# ======================================================================
+# Structural zone blends (not depletable)
+def zblend(base, f_ctrl, name):
+    return blend_two(base, 1 - f_ctrl, ctrl_empty, f_ctrl, name, T_struct)
+
+inner_ls = zblend(lower_struct_mat, f_ci, 'inner_ls')
+outer_ls = zblend(lower_struct_mat, f_co, 'outer_ls')
+inner_lr = zblend(lower_refl_mat,   f_ci, 'inner_lr')
+outer_lr = zblend(lower_refl_mat,   f_co, 'outer_lr')
+inner_bn = zblend(bond_na_mat,      f_ci, 'inner_bn')
+outer_bn = zblend(bond_na_mat,      f_co, 'outer_bn')
+inner_gp = zblend(plenum_mat,       f_ci, 'inner_gp')
+outer_gp = zblend(plenum_mat,       f_co, 'outer_gp')
+inner_us = zblend(upper_struct_mat, f_ci, 'inner_us')
+outer_us = zblend(upper_struct_mat, f_co, 'outer_us')
+
 materials = openmc.Materials(
     inner_ac_mats + outer_ac_mats
     + [inner_ls, outer_ls, inner_lr, outer_lr,
@@ -383,54 +331,59 @@ cyl_outer  = openmc.ZCylinder(r=R_outer)
 cyl_refl   = openmc.ZCylinder(r=R_refl)
 cyl_shield = openmc.ZCylinder(r=R_shield, boundary_type='vacuum')
 
-zp_ls_bot = openmc.ZPlane(z0=z_ls_bot,   boundary_type='vacuum')
-zp_lr_bot = openmc.ZPlane(z0=z_lr_bot)
-zp_fu_bot = openmc.ZPlane(z0=ax_z[0])
-zp_fu_top = openmc.ZPlane(z0=ax_z[N_AX])
-zp_bn_top = openmc.ZPlane(z0=z_bond_top)
-zp_pl_top = openmc.ZPlane(z0=z_pl_top)
-zp_us_top = openmc.ZPlane(z0=z_us_top,   boundary_type='vacuum')
+z0     = openmc.ZPlane(z0=z_bot,       boundary_type='vacuum')
+z1     = openmc.ZPlane(z0=z_lrefl_bot)
+z2     = openmc.ZPlane(z0=z_act_bot)
+z3     = openmc.ZPlane(z0=z_act_top)
+z4     = openmc.ZPlane(z0=z_bond_top)
+z5     = openmc.ZPlane(z0=z_plen_top)
+z6     = openmc.ZPlane(z0=z_top,       boundary_type='vacuum')
+zp_ax  = [openmc.ZPlane(z0=z_ax[i]) for i in range(1, N_AX)]  # 4 interior planes
 
-zp_ax = [openmc.ZPlane(z0=ax_z[i]) for i in range(1, N_AX)]
 
 def make_zone_cells(rad_reg, label, mat_ls, mat_lr, ac_mats,
                     mat_bn, mat_gp, mat_us):
+    """Build 10 axial cells for one radial annulus."""
     cells = []
-    cells.append(openmc.Cell(name=f'{label}_ls', fill=mat_ls,
-        region=rad_reg & +zp_ls_bot & -zp_lr_bot))
-    cells.append(openmc.Cell(name=f'{label}_lr', fill=mat_lr,
-        region=rad_reg & +zp_lr_bot & -zp_fu_bot))
+    cells.append(openmc.Cell(name=f'{label}_ls',  fill=mat_ls,
+                             region=rad_reg & +z0 & -z1))
+    cells.append(openmc.Cell(name=f'{label}_lr',  fill=mat_lr,
+                             region=rad_reg & +z1 & -z2))
+    # 5 active sub-zones
     cells.append(openmc.Cell(name=f'{label}_ac0', fill=ac_mats[0],
-        region=rad_reg & +zp_fu_bot & -zp_ax[0]))
+                             region=rad_reg & +z2 & -zp_ax[0]))
     for i in range(1, N_AX - 1):
         cells.append(openmc.Cell(name=f'{label}_ac{i}', fill=ac_mats[i],
-            region=rad_reg & +zp_ax[i-1] & -zp_ax[i]))
+                                 region=rad_reg & +zp_ax[i-1] & -zp_ax[i]))
     cells.append(openmc.Cell(name=f'{label}_ac4', fill=ac_mats[4],
-        region=rad_reg & +zp_ax[N_AX-2] & -zp_fu_top))
-    cells.append(openmc.Cell(name=f'{label}_bn', fill=mat_bn,
-        region=rad_reg & +zp_fu_top & -zp_bn_top))
-    cells.append(openmc.Cell(name=f'{label}_gp', fill=mat_gp,
-        region=rad_reg & +zp_bn_top & -zp_pl_top))
-    cells.append(openmc.Cell(name=f'{label}_us', fill=mat_us,
-        region=rad_reg & +zp_pl_top & -zp_us_top))
-    return cells
+                             region=rad_reg & +zp_ax[N_AX-2] & -z3))
+    cells.append(openmc.Cell(name=f'{label}_bn',  fill=mat_bn,
+                             region=rad_reg & +z3 & -z4))
+    cells.append(openmc.Cell(name=f'{label}_gp',  fill=mat_gp,
+                             region=rad_reg & +z4 & -z5))
+    cells.append(openmc.Cell(name=f'{label}_us',  fill=mat_us,
+                             region=rad_reg & +z5 & -z6))
+    return cells   # [ls, lr, ac0, ac1, ac2, ac3, ac4, bn, gp, us]
 
-inner_cells = make_zone_cells(-cyl_inner, 'inner',
+
+inner_cells = make_zone_cells(
+    -cyl_inner, 'inner',
     inner_ls, inner_lr, inner_ac_mats, inner_bn, inner_gp, inner_us)
-outer_cells = make_zone_cells(+cyl_inner & -cyl_outer, 'outer',
+outer_cells = make_zone_cells(
+    +cyl_inner & -cyl_outer, 'outer',
     outer_ls, outer_lr, outer_ac_mats, outer_bn, outer_gp, outer_us)
 
 cell_refl   = openmc.Cell(name='radial_refl',   fill=radial_refl_mat,
-    region=+cyl_outer & -cyl_refl  & +zp_ls_bot & -zp_us_top)
+                          region=+cyl_outer & -cyl_refl  & +z0 & -z6)
 cell_shield = openmc.Cell(name='radial_shield',  fill=radial_shield,
-    region=+cyl_refl  & -cyl_shield & +zp_ls_bot & -zp_us_top)
+                          region=+cyl_refl  & -cyl_shield & +z0 & -z6)
 
 universe = openmc.Universe(
     cells=inner_cells + outer_cells + [cell_refl, cell_shield])
 geometry = openmc.Geometry(universe)
 
 # ======================================================================
-# SETTINGS  (used at every depletion transport step)
+# SETTINGS  (eigenvalue, used at every depletion transport step)
 # ======================================================================
 settings = openmc.Settings()
 settings.run_mode  = 'eigenvalue'
@@ -440,33 +393,21 @@ settings.particles = DEPL_PARTICLES
 
 settings.source = openmc.IndependentSource(
     space=openmc.stats.Box(
-        [-R_outer, -R_outer, z_fuel_bot],
-        [ R_outer,  R_outer, z_fuel_top],
-        only_fissionable=True
-    )
+        [-R_outer, -R_outer, z_act_bot],
+        [ R_outer,  R_outer, z_act_top],
+    ),
+    constraints={'fissionable': True},
 )
-
 entropy_mesh = openmc.RegularMesh()
-entropy_mesh.lower_left  = [-R_outer, -R_outer, z_fuel_bot]
-entropy_mesh.upper_right = [ R_outer,  R_outer, z_fuel_top]
+entropy_mesh.lower_left  = [-R_outer, -R_outer, z_act_bot]
+entropy_mesh.upper_right = [ R_outer,  R_outer, z_act_top]
 entropy_mesh.dimension   = [20, 20, 20]
 settings.entropy_mesh = entropy_mesh
 settings.temperature  = {'default': T_struct, 'method': 'interpolation'}
 
 # ======================================================================
-# TALLIES
-# (Depletion uses its own internal reaction-rate tallies automatically;
-#  these are additional output tallies for physics analysis.)
+# TALLIES  (physics output recorded at every depletion step)
 # ======================================================================
-inner_ac_cells = inner_cells[2:7]
-outer_ac_cells = outer_cells[2:7]
-
-fuel_filt  = openmc.CellFilter(inner_ac_cells + outer_ac_cells)
-inner_filt = openmc.CellFilter(inner_ac_cells)
-outer_filt = openmc.CellFilter(outer_ac_cells)
-leak_filt  = openmc.SurfaceFilter([cyl_shield, zp_ls_bot, zp_us_top])
-neut_filt  = openmc.ParticleFilter(['neutron'])
-
 grpstr33 = [
     1.00000E-05, 4.17458E-01, 5.31578E-01, 3.92786E+00, 8.31528E+00,
     1.37096E+01, 2.26033E+01, 3.72665E+01, 6.14421E+01, 1.01301E+02,
@@ -476,7 +417,18 @@ grpstr33 = [
     3.01974E+05, 4.97871E+05, 8.20850E+05, 1.35335E+06, 2.23130E+06,
     3.67879E+06, 6.06531E+06, 1.00000E+07, 2.00000E+07
 ]
-E_filt = openmc.EnergyFilter(grpstr33)
+
+inner_ac_cells = inner_cells[2:7]   
+outer_ac_cells = outer_cells[2:7]
+
+fuel_filt  = openmc.CellFilter(inner_ac_cells + outer_ac_cells)
+inner_filt = openmc.CellFilter(inner_ac_cells)
+outer_filt = openmc.CellFilter(outer_ac_cells)
+all_filt   = openmc.CellFilter(
+    inner_cells + outer_cells + [cell_refl, cell_shield])
+neut_filt  = openmc.ParticleFilter(['neutron'])
+E_filt     = openmc.EnergyFilter(grpstr33)
+leak_filt  = openmc.SurfaceFilter([cyl_shield, z0, z6])
 
 tallies = openmc.Tallies()
 
@@ -491,6 +443,11 @@ tallies.append(t)
 
 t = openmc.Tally(name='outer_power')
 t.filters = [outer_filt]; t.scores = ['kappa-fission', 'fission']
+tallies.append(t)
+
+t = openmc.Tally(name='neutron_balance')
+t.filters = [neut_filt, all_filt]
+t.scores  = ['absorption', 'nu-fission', '(n,2n)', '(n,3n)']
 tallies.append(t)
 
 t = openmc.Tally(name='system_leakage')
@@ -512,204 +469,148 @@ tallies.append(t)
 # ======================================================================
 # ASSEMBLE MODEL
 # ======================================================================
-model = openmc.Model(geometry=geometry, materials=materials,
-                     settings=settings, tallies=tallies)
+model = openmc.Model(
+    geometry=geometry,
+    materials=materials,
+    settings=settings,
+    tallies=tallies,
+)
 
 # ======================================================================
 # DEPLETION TIMESTEP SCHEDULE
-# 12 geometric steps spanning 328.5 EFPD (0.36 d → 137.7 d).
-# Geometric spacing captures both the short-lived FP transient (first
-# ~10 days) and the slow actinide burnup trend (last ~200 days).
 # ======================================================================
-# Reference HM mass for burnup labelling [kg]
-# Computed from benchmark number densities and cylindrical geometry
-_Na_av = 6.022e23
-_A_hm  = {  # approximate atomic mass per actinide
-    'U234':234,'U235':235,'U236':236,'U238':238,'Np237':237,
-    'Pu238':238,'Pu239':239,'Pu240':240,'Pu241':241,'Pu242':242,
-    'Am241':241,'Am242_m1':242,'Am243':243,
-    'Cm242':242,'Cm243':243,'Cm244':244,'Cm245':245,'Cm246':246,
-}
-def _hm_mass_kg(zone_data, V_zone):
-    m = 0.0
-    for nuc in _ACTINIDES:
-        nd = _mean(zone_data[nuc]) if isinstance(zone_data[nuc], list) else zone_data[nuc]
-        m += nd * VF_FUEL * 1e24 * _A_hm[nuc] / _Na_av * V_zone
-    return m / 1e3  # g -> kg
+_t_pts    = np.geomspace(0.5, CYCLE_EFPD, 13)   
+timesteps = list(np.diff(_t_pts))
+timesteps[-1] += CYCLE_EFPD - sum(timesteps)     # absorb floating-point error
+timesteps = [float(dt) for dt in timesteps]
 
-V_inner = math.pi * R_inner**2 * H_active
-V_outer = math.pi * (R_outer**2 - R_inner**2) * H_active
-M_HM_kg = _hm_mass_kg(_I_zones, V_inner) + _hm_mass_kg(_O_zones, V_outer)
-M_HM_MT = M_HM_kg / 1e6
-print(f"Computed HM mass: {M_HM_MT:.2f} MT  (ANL reference: 13.2 MT)")
+_cum_d = np.cumsum([0.0] + timesteps)
+_cum_bu = POWER_W / 1e6 * _cum_d / (M_HM_KG / 1e3)
 
-# Geometric timestep list [days]
-_t_pts = np.geomspace(0.5, CYCLE_EFPD, 13)   # 13 points = 12 intervals
-timesteps_d = list(np.diff(_t_pts))
-# Adjust last step so the total is exactly CYCLE_EFPD
-timesteps_d[-1] += CYCLE_EFPD - sum(timesteps_d)
-timesteps_d = [float(dt) for dt in timesteps_d]
-
-# Cumulative burnup at each step endpoint for reporting
-cum_EFPD = np.cumsum([0.0] + timesteps_d)
-cum_BU   = POWER_W / 1e6 * cum_EFPD / (M_HM_kg / 1e3)  # MWd/kg
-
-print("\nDepletion timestep schedule:")
-print(f"  {'Step':>4}  {'dt (d)':>8}  {'cum (d)':>8}  {'BU (MWd/kg)':>12}")
-for i, dt in enumerate(timesteps_d):
-    print(f"  {i+1:4d}  {dt:8.2f}  {cum_EFPD[i+1]:8.1f}  {cum_BU[i+1]:12.1f}")
-print(f"\n  Total: {sum(timesteps_d):.2f} EFPD  "
-      f"Final BU: {cum_BU[-1]:.1f} MWd/kg")
-print(f"  Expected discharge (×4 batches): {cum_BU[-1]*4:.0f} MWd/kg  "
-      f"(ANL: 93 MWd/kg)")
+print("\n" + "=" * 68)
+print("ABR-1000  Full Cycle Depletion Run")
+print("=" * 68)
+print(f"  Chain file      : {CHAIN_FILE}")
+print(f"  Power           : {POWER_W/1e6:.0f} MWt")
+print(f"  Cycle length    : {CYCLE_EFPD:.1f} EFPD  (12 months x 90% CF)")
+print(f"  Reference HM    : {M_HM_KG:.0f} kg  ([ANL] Table II.1-3)")
+print(f"  Transport/step  : {DEPL_BATCHES} batches x {DEPL_PARTICLES:,} particles "
+      f"({DEPL_INACTIVE} inactive)")
+print(f"  Depletable mats : {N_AX * 2}  (5 axial x 2 radial zones)")
+print()
+print(f"  Timestep schedule ({len(timesteps)} steps):")
+print(f"  {'#':>3}  {'dt [d]':>8}  {'cum [d]':>8}  {'BU [MWd/kg]':>12}")
+for i, dt in enumerate(timesteps):
+    print(f"  {i+1:3d}  {dt:8.2f}  {_cum_d[i+1]:8.1f}  {_cum_bu[i+1]:12.1f}")
+print()
+print(f"  Expected k swing : ~2210 pcm ([NEA] Table 4.3 mean +/- 422 pcm)")
+print(f"  Expected TRU loss: ~82 kg/cycle ([ANL] Table II.1-4)")
+print("=" * 68 + "\n")
 
 # ======================================================================
 # RUN DEPLETION
 # ======================================================================
-print("\n" + "="*65)
-print("ABR-1000  Depletion Run  (CECM integrator, 12 timesteps)")
-print("="*65)
+operator = openmc.deplete.CoupledOperator(model, CHAIN_FILE)
 
 integrator = openmc.deplete.CECMIntegrator(
-    model,
-    CHAIN_FILE,
-    timesteps=timesteps_d,
+    operator,
+    timesteps,
+    POWER_W,
     timestep_units='d',
-    power=POWER_W,
 )
 integrator.integrate()
 
 # ======================================================================
 # POST-PROCESSING
 # ======================================================================
-print("\n" + "="*65)
-print("POST-PROCESSING RESULTS")
-print("="*65)
+print("\n" + "=" * 68)
+print("POST-PROCESSING DEPLETION RESULTS")
+print("=" * 68)
 
-results = openmc.deplete.Results('depletion_results.h5')
-n_steps = len(results)
+results   = openmc.deplete.Results('depletion_results.h5')
+times_d   = results.get_times('d')
+keffs, kuncs = zip(*results.get_keff())
 
-# Nuclides to track for inventory
-_track_u   = ['U235', 'U238']
-_track_pu  = ['Pu239', 'Pu240', 'Pu241', 'Pu242']
-_track_am  = ['Am241', 'Am243']
-_track_cm  = ['Cm244', 'Cm245']
-_track_all = _ACTINIDES  # full actinide list
+# Material IDs of all depletable (active-core) materials
+depl_ids = set(m.id for m in inner_ac_mats + outer_ac_mats)
 
-# Collect all depletable material IDs
-depl_mat_ids = [m.id for m in (inner_ac_mats + outer_ac_mats)]
-
-def get_total_mass_kg(results, step_idx, nuclide):
-    """Sum nuclide mass [kg] across all depletable materials at a given step."""
-    total = 0.0
-    _, mats = results[step_idx]
+def total_mass_kg(si, nuclide):
+    """Sum nuclide mass [kg] across all depletable materials at step si."""
+    _, mats = results[si]
+    g = 0.0
     for mat in mats:
-        if mat.id in depl_mat_ids:
+        if mat.id in depl_ids:
             try:
-                total += mat.get_mass(nuclide)  # grams
+                g += mat.get_mass(nuclide)
             except Exception:
                 pass
-    return total / 1e3  # g -> kg
+    return g / 1e3
 
-# Build results table
+# Nuclides tracked in the summary
+TRACK    = ['U235','U238','Np237','Pu238','Pu239','Pu240','Pu241','Pu242',
+            'Am241','Am243','Cm244','Cm245']
+TRU_NUCS = ['Np237','Pu238','Pu239','Pu240','Pu241','Pu242',
+            'Am241','Am242_m1','Am243','Cm242','Cm243','Cm244','Cm245','Cm246']
+
 rows = []
-for si in range(n_steps):
-    time_d = results.get_times('d')[si]
-    keff, keff_unc = results.get_keff()[si]
-
-    # Actinide masses [kg]
-    m_U235  = get_total_mass_kg(results, si, 'U235')
-    m_U238  = get_total_mass_kg(results, si, 'U238')
-    m_Pu239 = get_total_mass_kg(results, si, 'Pu239')
-    m_Pu240 = get_total_mass_kg(results, si, 'Pu240')
-    m_Pu241 = get_total_mass_kg(results, si, 'Pu241')
-    m_Pu242 = get_total_mass_kg(results, si, 'Pu242')
-    m_Am241 = get_total_mass_kg(results, si, 'Am241')
-    m_Am243 = get_total_mass_kg(results, si, 'Am243')
-    m_Cm244 = get_total_mass_kg(results, si, 'Cm244')
-    m_Cm245 = get_total_mass_kg(results, si, 'Cm245')
-    m_Np237 = get_total_mass_kg(results, si, 'Np237')
-
-    # TRU = Np + all Pu + Am + Cm
-    m_TRU = (m_Np237
-             + m_Pu239 + m_Pu240 + m_Pu241 + m_Pu242
-             + m_Am241 + m_Am243
-             + m_Cm244 + m_Cm245)
-    # Total HM ≈ U + TRU (neglect minor isotopes)
-    m_HM  = m_U235 + m_U238 + m_TRU
-
-    # Burnup [MWd/kgHM] — referenced to initial HM mass
-    burnup = POWER_W / 1e6 * time_d / (M_HM_kg / 1e3)
-
+for si in range(len(results)):
+    t_d  = times_d[si]
+    bu   = POWER_W / 1e6 * t_d / (M_HM_KG / 1e3)
+    k    = keffs[si]
+    ku   = kuncs[si]
+    mass = {n: total_mass_kg(si, n) for n in TRACK}
+    mass['Am242_m1'] = total_mass_kg(si, 'Am242_m1')
+    mass['Cm242']    = total_mass_kg(si, 'Cm242')
+    mass['Cm243']    = total_mass_kg(si, 'Cm243')
+    mass['Cm246']    = total_mass_kg(si, 'Cm246')
+    m_TRU = sum(total_mass_kg(si, n) for n in TRU_NUCS)
+    m_HM  = mass['U235'] + mass['U238'] + m_TRU
     rows.append({
-        'step': si,
-        'time_d': time_d,
-        'burnup': burnup,
-        'keff': keff,
-        'keff_unc': keff_unc,
-        'U235_kg': m_U235,
-        'U238_kg': m_U238,
-        'Pu239_kg': m_Pu239,
-        'Pu240_kg': m_Pu240,
-        'Pu241_kg': m_Pu241,
-        'Pu242_kg': m_Pu242,
-        'Am241_kg': m_Am241,
-        'Am243_kg': m_Am243,
-        'Cm244_kg': m_Cm244,
-        'Cm245_kg': m_Cm245,
-        'Np237_kg': m_Np237,
-        'TRU_kg': m_TRU,
-        'HM_kg': m_HM,
+        'step': si, 'time_d': t_d, 'burnup_MWd_kg': bu,
+        'keff': k, 'keff_1sig': ku,
+        **{f'm_{n}_kg': mass.get(n, 0.0) for n in TRACK},
+        'm_TRU_kg': m_TRU, 'm_HM_kg': m_HM,
     })
 
-# Print k-eff vs. burnup table
-print("\n  k-eff vs. Burnup:")
-print(f"  {'Step':>4}  {'Time(d)':>8}  {'BU(MWd/kg)':>11}  "
-      f"{'k-eff':>7}  {'±1σ':>6}")
-print("  " + "-"*50)
+# k-eff vs burnup table
+print(f"\n  {'Step':>4}  {'Time (d)':>9}  {'BU (MWd/kg)':>12}  "
+      f"{'k-eff':>8}  {'+/-1sig':>8}")
+print("  " + "-" * 55)
 for r in rows:
-    print(f"  {r['step']:4d}  {r['time_d']:8.1f}  {r['burnup']:11.1f}  "
-          f"  {r['keff']:.5f}  {r['keff_unc']:.5f}")
+    print(f"  {r['step']:4d}  {r['time_d']:9.1f}  {r['burnup_MWd_kg']:12.1f}"
+          f"  {r['keff']:.5f}  {r['keff_1sig']:.5f}")
 
-# k-eff reactivity swing
-k_BOEC = rows[0]['keff']
-k_EOEC = rows[-1]['keff']
-dk_pct = (k_BOEC - k_EOEC) / (k_BOEC * k_EOEC) * 100  # Δρ in %Δk/k
-print(f"\n  Burnup reactivity loss: {dk_pct:.2f}% Δk  "
-      f"(ANL reference: 2.2% Δk)")
-print(f"  k_BOEC = {k_BOEC:.5f}")
-print(f"  k_EOEC = {k_EOEC:.5f}")
+# Reactivity swing
+k0   = rows[0]['keff'];  kf = rows[-1]['keff']
+dk   = (k0 - kf) / (k0 * kf) * 1e5
+print(f"\n  Burnup reactivity swing (Drho_cycle): {dk:.0f} pcm")
+print(f"    k_BOC = {k0:.5f},  k_EOC = {kf:.5f}")
+print(f"    Benchmark mean: 2210 +/- 422 pcm  ([NEA] Table 4.3)")
 
 # Actinide inventory change
-print("\n  Actinide inventory change (BOEC → EOEC):")
-r0 = rows[0]; rn = rows[-1]
-for nuc in ['U235','U238','Pu239','Pu240','Pu241','Pu242','Am241','Am243',
-            'Cm244','Cm245','TRU','HM']:
-    k = f'{nuc}_kg'
-    m0 = r0[k]; mf = rn[k]
-    dm = mf - m0
-    print(f"    {nuc:<8}: {m0:8.1f} kg  ->  {mf:8.1f} kg  "
-          f"(Δ = {dm:+7.1f} kg)")
+r0 = rows[0];  rn = rows[-1]
+print(f"\n  Actinide inventory change  (BOC -> EOC):")
+print(f"  {'Nuclide':<10}  {'BOC [kg]':>10}  {'EOC [kg]':>10}  {'Delta [kg]':>11}")
+for nuc in TRACK:
+    k  = f'm_{nuc}_kg'
+    m0 = r0[k];  mf = rn[k]
+    print(f"  {nuc:<10}  {m0:10.2f}  {mf:10.2f}  {mf-m0:+11.2f}")
+print(f"  {'TRU total':<10}  {r0['m_TRU_kg']:10.2f}  {rn['m_TRU_kg']:10.2f}"
+      f"  {rn['m_TRU_kg']-r0['m_TRU_kg']:+11.2f}")
+print(f"  {'HM total':<10}  {r0['m_HM_kg']:10.2f}  {rn['m_HM_kg']:10.2f}"
+      f"  {rn['m_HM_kg']-r0['m_HM_kg']:+11.2f}")
 
-# TRU conversion ratio
-# CR_TRU = (TRU produced) / (TRU destroyed)
-tru_destroyed = r0['TRU_kg'] - rn['TRU_kg']
-# Pu239 produced from U238 capture (estimate: Δ(all Pu+Am+Cm beyond initial))
-# Simplified: CR = 1 - |ΔTRU| / (TRU_initial * burnup_fraction)
-print(f"\n  TRU destroyed: {tru_destroyed:.1f} kg/cycle  "
-      f"(ANL reference: ~82 kg/year = 82 kg/cycle)")
-tru_rate_per_year = tru_destroyed * 365.25 / CYCLE_EFPD
-print(f"  TRU consumption rate: {tru_rate_per_year:.1f} kg/year")
+tru_consumed = r0['m_TRU_kg'] - rn['m_TRU_kg']
+tru_rate     = tru_consumed * 365.25 / CYCLE_EFPD
+print(f"\n  TRU destroyed this cycle : {tru_consumed:.1f} kg")
+print(f"  TRU consumption rate     : {tru_rate:.1f} kg/year")
+print(f"    Benchmark reference    : 81.6 kg/year  ([ANL] Table II.1-4)")
 
-# Save to CSV
-import csv
-csv_file = 'ABR1000_depletion_results.csv'
-with open(csv_file, 'w', newline='') as f:
+# Save CSV
+csv_path = 'ABR1000_depletion_summary.csv'
+with open(csv_path, 'w', newline='') as f:
     writer = csv.DictWriter(f, fieldnames=rows[0].keys())
     writer.writeheader()
     writer.writerows(rows)
-print(f"\n  Results saved to: {csv_file}")
-
-print("\n" + "="*65)
-print("Depletion run complete.")
-print("="*65)
+print(f"\n  Results saved -> {csv_path}")
+print("=" * 68 + "\n")
